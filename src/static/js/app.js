@@ -101,6 +101,9 @@ function setupNavigation() {
                 case 'match':
                     renderMatchAnalysis();
                     break;
+                case 'history':
+                    renderMatchHistory();
+                    break;
             }
         });
     });
@@ -911,3 +914,306 @@ async function fetchJobs(silent = false) {
         state.jobs = [];
     }
 }
+
+// ==================== 匹配记录功能 ====================
+
+// State for match history
+state.matchHistory = [];
+state.matchHistoryPage = 1;
+state.matchHistoryTotal = 0;
+state.matchHistoryTotalPages = 0;
+state.matchHistoryJobFilter = null;
+
+async function fetchMatchHistory(page = 1, jobId = null) {
+    try {
+        let url = `${API_BASE}/match/history?page=${page}&page_size=10`;
+        if (jobId) url += `&job_id=${jobId}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        state.matchHistory = data.items;
+        state.matchHistoryPage = data.page;
+        state.matchHistoryTotal = data.total;
+        state.matchHistoryTotalPages = data.total_pages;
+        return data;
+    } catch (e) {
+        console.error('Failed to fetch match history:', e);
+        state.matchHistory = [];
+        return null;
+    }
+}
+
+function renderMatchHistory() {
+    pageTitle.textContent = '匹配记录';
+    state.currentView = 'history';
+
+    contentArea.innerHTML = `
+        <div class="card" style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <h3 style="margin: 0;"><i class="fa-solid fa-clock-rotate-left"></i> 分析历史记录</h3>
+                    <select id="historyJobFilter" style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 8px; min-width: 200px;">
+                        <option value="">全部职位</option>
+                    </select>
+                </div>
+                <button class="btn btn-outline" onclick="renderMatchHistory()">
+                    <i class="fa-solid fa-rotate"></i> 刷新
+                </button>
+            </div>
+        </div>
+        
+        <div id="historyListArea">
+            <div class="loader" style="margin: 50px auto;"></div>
+        </div>
+        
+        <div id="historyPagination" style="margin-top: 20px; display: flex; justify-content: center; gap: 10px;"></div>
+    `;
+
+    // Load jobs for filter
+    fetchJobs().then(() => {
+        const select = document.getElementById('historyJobFilter');
+        if (select && state.jobs.length > 0) {
+            select.innerHTML = `<option value="">全部职位</option>` +
+                state.jobs.map(j => `<option value="${j.id}">${j.title}</option>`).join('');
+            if (state.matchHistoryJobFilter) {
+                select.value = state.matchHistoryJobFilter;
+            }
+        }
+        select.addEventListener('change', (e) => {
+            state.matchHistoryJobFilter = e.target.value || null;
+            state.matchHistoryPage = 1;
+            loadMatchHistoryList();
+        });
+    });
+
+    // Load history
+    loadMatchHistoryList();
+}
+
+function loadMatchHistoryList() {
+    const listArea = document.getElementById('historyListArea');
+    listArea.innerHTML = '<div class="loader" style="margin: 50px auto;"></div>';
+
+    fetchMatchHistory(state.matchHistoryPage, state.matchHistoryJobFilter).then((data) => {
+        if (!data || state.matchHistory.length === 0) {
+            listArea.innerHTML = `
+                <div class="card" style="text-align: center; padding: 40px;">
+                    <i class="fa-solid fa-inbox" style="font-size: 3rem; color: var(--border-color); margin-bottom: 20px;"></i>
+                    <h3>暂无匹配记录</h3>
+                    <p style="color: var(--text-secondary);">进行一次匹配分析后，记录将显示在这里</p>
+                    <button class="btn btn-primary" onclick="document.querySelector('[data-view=match]').click()" style="margin-top: 15px;">
+                        <i class="fa-solid fa-plus"></i> 开始匹配分析
+                    </button>
+                </div>
+            `;
+            document.getElementById('historyPagination').innerHTML = '';
+            return;
+        }
+
+        listArea.innerHTML = state.matchHistory.map(renderMatchHistoryItem).join('');
+        renderHistoryPagination();
+    });
+}
+
+function renderMatchHistoryItem(item) {
+    const scoreColor = item.overall_score >= 70 ? 'var(--success-color)' :
+        item.overall_score >= 50 ? 'var(--warning-color)' : '#ef4444';
+    const scoreClass = item.overall_score >= 70 ? 'success' :
+        item.overall_score >= 50 ? 'warning' : 'danger';
+
+    const date = new Date(item.created_at);
+    const dateStr = date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    return `
+        <div class="candidate-item" onclick="viewMatchHistoryDetail(${item.match_id})" style="margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; flex: 1; gap: 15px;">
+                <div style="width: 60px; height: 60px; border-radius: 12px; background: linear-gradient(135deg, ${scoreColor}, ${scoreColor}dd); display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;">
+                    <div style="font-size: 1.25rem; font-weight: 700;">${item.overall_score?.toFixed(0) || 'N/A'}</div>
+                    <div style="font-size: 0.625rem; opacity: 0.9;">匹配度</div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px;">
+                        ${item.candidate_name || '未知候选人'}
+                    </div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                        <i class="fa-solid fa-briefcase"></i> ${item.job_title || '未知职位'}
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">
+                        <i class="fa-regular fa-clock"></i> ${dateStr}
+                        ${item.llm_provider ? `<span style="margin-left: 10px;"><i class="fa-solid fa-robot"></i> ${item.llm_provider}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <div style="text-align: center; padding: 5px 10px; background: #f8f9fa; border-radius: 8px; min-width: 50px;">
+                    <div style="font-size: 0.875rem; font-weight: 600; color: var(--primary-color);">${item.skill_match_score?.toFixed(0) || '-'}</div>
+                    <div style="font-size: 0.625rem; color: var(--text-secondary);">技能</div>
+                </div>
+                <div style="text-align: center; padding: 5px 10px; background: #f8f9fa; border-radius: 8px; min-width: 50px;">
+                    <div style="font-size: 0.875rem; font-weight: 600; color: var(--primary-color);">${item.experience_match_score?.toFixed(0) || '-'}</div>
+                    <div style="font-size: 0.625rem; color: var(--text-secondary);">经验</div>
+                </div>
+                <div style="text-align: center; padding: 5px 10px; background: #f8f9fa; border-radius: 8px; min-width: 50px;">
+                    <div style="font-size: 0.875rem; font-weight: 600; color: var(--primary-color);">${item.education_match_score?.toFixed(0) || '-'}</div>
+                    <div style="font-size: 0.625rem; color: var(--text-secondary);">学历</div>
+                </div>
+                <i class="fa-solid fa-chevron-right" style="color: var(--text-secondary); margin-left: 10px;"></i>
+            </div>
+        </div>
+    `;
+}
+
+function renderHistoryPagination() {
+    const paginationArea = document.getElementById('historyPagination');
+    if (state.matchHistoryTotalPages <= 1) {
+        paginationArea.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+
+    // Previous button
+    html += `<button class="btn btn-outline" ${state.matchHistoryPage <= 1 ? 'disabled' : ''} onclick="goToHistoryPage(${state.matchHistoryPage - 1})">
+        <i class="fa-solid fa-chevron-left"></i>
+    </button>`;
+
+    // Page info
+    html += `<span style="padding: 8px 15px; color: var(--text-secondary);">
+        第 ${state.matchHistoryPage} / ${state.matchHistoryTotalPages} 页 (共 ${state.matchHistoryTotal} 条)
+    </span>`;
+
+    // Next button
+    html += `<button class="btn btn-outline" ${state.matchHistoryPage >= state.matchHistoryTotalPages ? 'disabled' : ''} onclick="goToHistoryPage(${state.matchHistoryPage + 1})">
+        <i class="fa-solid fa-chevron-right"></i>
+    </button>`;
+
+    paginationArea.innerHTML = html;
+}
+
+function goToHistoryPage(page) {
+    if (page < 1 || page > state.matchHistoryTotalPages) return;
+    state.matchHistoryPage = page;
+    loadMatchHistoryList();
+}
+
+async function viewMatchHistoryDetail(matchId) {
+    // Show loading modal
+    const modal = document.getElementById('uploadModal');
+    modal.innerHTML = `
+        <div class="card" style="width: 700px; max-width: 95%; max-height: 90vh; overflow-y: auto;">
+            <div class="loader" style="margin: 50px auto;"></div>
+        </div>
+    `;
+    modal.style.display = 'flex';
+
+    try {
+        const response = await fetch(`${API_BASE}/match/${matchId}`);
+        if (!response.ok) throw new Error('Failed to load match detail');
+        const result = await response.json();
+
+        const scoreClass = result.overall_score >= 70 ? 'success' : result.overall_score >= 50 ? 'warning' : 'danger';
+        const scoreColor = scoreClass === 'success' ? '#10b981, #059669' : scoreClass === 'warning' ? '#f59e0b, #d97706' : '#ef4444, #dc2626';
+
+        modal.innerHTML = `
+            <div class="card" style="width: 700px; max-width: 95%; max-height: 90vh; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px;">
+                    <h2 style="margin: 0;"><i class="fa-solid fa-chart-pie"></i> 匹配详情</h2>
+                    <i class="fa-solid fa-xmark" style="cursor: pointer; font-size: 1.25rem; color: var(--text-secondary);" onclick="hideUploadModal()"></i>
+                </div>
+                
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <div style="text-align: center; background: linear-gradient(135deg, ${scoreColor}); color: white; padding: 20px 30px; border-radius: 12px;">
+                        <div style="font-size: 2.5rem; font-weight: 700;">${result.overall_score?.toFixed(0) || 'N/A'}</div>
+                        <div style="font-size: 0.875rem; opacity: 0.9;">总体匹配度</div>
+                    </div>
+                    <div style="flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <div style="text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${result.skill_match_score?.toFixed(0) || 'N/A'}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">技能匹配</div>
+                        </div>
+                        <div style="text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${result.experience_match_score?.toFixed(0) || 'N/A'}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">经验匹配</div>
+                        </div>
+                        <div style="text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${result.education_match_score?.toFixed(0) || 'N/A'}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">学历匹配</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <h4><i class="fa-solid fa-lightbulb"></i> AI 总结</h4>
+                    <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 0.875rem;">
+                        ${result.summary || '暂无总结'}
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <h4><i class="fa-solid fa-thumbs-up"></i> 推荐意见</h4>
+                    <div style="background: #f0fdf4; padding: 12px; border-radius: 8px; border-left: 4px solid var(--success-color); font-size: 0.875rem;">
+                        ${result.recommendation || '暂无推荐意见'}
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                    <div>
+                        <h4 style="color: var(--success-color);"><i class="fa-solid fa-check"></i> 匹配技能</h4>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            ${result.matched_skills.map(s => `<span class="skill-tag skill-tag-primary">${s}</span>`).join('') || '<span style="color: var(--text-secondary);">无</span>'}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style="color: var(--warning-color);"><i class="fa-solid fa-xmark"></i> 缺失技能</h4>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            ${result.missing_skills.map(s => `<span class="skill-tag" style="background: #fff7ed; color: #c2410c;">${s}</span>`).join('') || '<span style="color: var(--text-secondary);">无</span>'}
+                        </div>
+                    </div>
+                </div>
+                
+                ${result.risk_flags && result.risk_flags.length > 0 ? `
+                    <div style="margin-top: 15px;">
+                        <h4 style="color: #dc2626;"><i class="fa-solid fa-triangle-exclamation"></i> 风险提示</h4>
+                        <div style="background: #fef2f2; padding: 12px; border-radius: 8px;">
+                            <ul style="margin: 0; padding-left: 20px; font-size: 0.875rem;">
+                                ${result.risk_flags.map(r => `<li>${r}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${result.interview_questions && result.interview_questions.length > 0 ? `
+                    <div style="margin-top: 15px;">
+                        <h4><i class="fa-solid fa-comments"></i> 建议面试问题</h4>
+                        <div style="background: #eff6ff; padding: 12px; border-radius: 8px;">
+                            <ol style="margin: 0; padding-left: 20px; font-size: 0.875rem;">
+                                ${result.interview_questions.map(q => `<li style="margin-bottom: 6px;">${q}</li>`).join('')}
+                            </ol>
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+                    <button class="btn btn-outline" onclick="hideUploadModal()">关闭</button>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        modal.innerHTML = `
+            <div class="card" style="width: 500px; text-align: center; padding: 40px;">
+                <i class="fa-solid fa-circle-exclamation" style="font-size: 3rem; color: #ef4444; margin-bottom: 20px;"></i>
+                <h3>加载失败</h3>
+                <p style="color: var(--text-secondary);">${e.message}</p>
+                <button class="btn btn-outline" onclick="hideUploadModal()" style="margin-top: 15px;">关闭</button>
+            </div>
+        `;
+    }
+}
+

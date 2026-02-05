@@ -94,3 +94,32 @@ class BatchStatusResponse(BaseModel):
     status: str  # queued, processing, completed, failed
     progress: dict
     results: Optional[List[dict]] = None
+
+
+class MatchHistoryItem(BaseModel):
+    """匹配历史记录项"""
+    match_id: int
+    candidate_id: int
+    candidate_name: Optional[str] = None
+    job_id: int
+    job_title: Optional[str] = None
+    overall_score: Optional[float] = None
+    skill_match_score: Optional[float] = None
+    experience_match_score: Optional[float] = None
+    education_match_score: Optional[float] = None
+    summary: Optional[str] = None
+    llm_provider: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class MatchHistoryResponse(BaseModel):
+    """匹配历史分页响应"""
+    items: List[MatchHistoryItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+

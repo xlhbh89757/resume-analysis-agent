@@ -14,6 +14,8 @@ from src.services.llm_service import LLMAnalysisService
 from src.api.schemas.match import (
     MatchRequest,
     MatchResponse,
+    MatchHistoryItem,
+    MatchHistoryResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,3 +150,121 @@ async def get_match_results(
         )
         for r in results
     ]
+
+
+@router.get("/history", response_model=MatchHistoryResponse)
+async def get_match_history(
+    page: int = 1,
+    page_size: int = 20,
+    job_id: int = None,
+    db: Session = Depends(get_db),
+):
+    """获取匹配分析历史记录（分页）
+    
+    支持按职位 ID 筛选，返回分页结果。
+    """
+    query = db.query(MatchResult)
+    
+    # 可选按职位筛选
+    if job_id:
+        query = query.filter(MatchResult.job_id == job_id)
+    
+    # 总数
+    total = query.count()
+    total_pages = (total + page_size - 1) // page_size
+    
+    # 分页查询，按创建时间倒序
+    results = query.order_by(MatchResult.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    
+    items = []
+    for r in results:
+        # 获取候选人和职位信息
+        candidate = db.query(Candidate).filter(Candidate.id == r.candidate_id).first()
+        job = db.query(JobDescription).filter(JobDescription.id == r.job_id).first()
+        
+        items.append(MatchHistoryItem(
+            match_id=r.id,
+            candidate_id=r.candidate_id,
+            candidate_name=candidate.name if candidate else None,
+            job_id=r.job_id,
+            job_title=job.title if job else None,
+            overall_score=r.overall_score,
+            skill_match_score=r.skill_match_score,
+            experience_match_score=r.experience_match_score,
+            education_match_score=r.education_match_score,
+            summary=r.summary,
+            llm_provider=r.llm_provider,
+            created_at=r.created_at,
+        ))
+    
+    return MatchHistoryResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/by-job/{job_id}", response_model=List[MatchHistoryItem])
+async def get_matches_by_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """获取某个职位的所有匹配记录"""
+    # 验证职位存在
+    job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+    
+    results = db.query(MatchResult).filter(MatchResult.job_id == job_id).order_by(MatchResult.overall_score.desc()).all()
+    
+    items = []
+    for r in results:
+        candidate = db.query(Candidate).filter(Candidate.id == r.candidate_id).first()
+        items.append(MatchHistoryItem(
+            match_id=r.id,
+            candidate_id=r.candidate_id,
+            candidate_name=candidate.name if candidate else None,
+            job_id=r.job_id,
+            job_title=job.title,
+            overall_score=r.overall_score,
+            skill_match_score=r.skill_match_score,
+            experience_match_score=r.experience_match_score,
+            education_match_score=r.education_match_score,
+            summary=r.summary,
+            llm_provider=r.llm_provider,
+            created_at=r.created_at,
+        ))
+    
+    return items
+
+
+@router.get("/{match_id}", response_model=MatchResponse)
+async def get_match_detail(
+    match_id: int,
+    db: Session = Depends(get_db),
+):
+    """获取单条匹配记录详情"""
+    r = db.query(MatchResult).filter(MatchResult.id == match_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="匹配记录不存在")
+    
+    return MatchResponse(
+        match_id=r.id,
+        candidate_id=r.candidate_id,
+        job_id=r.job_id,
+        overall_score=r.overall_score,
+        skill_match_score=r.skill_match_score,
+        experience_match_score=r.experience_match_score,
+        education_match_score=r.education_match_score,
+        matched_skills=json.loads(r.matched_skills) if r.matched_skills else [],
+        missing_skills=json.loads(r.missing_skills) if r.missing_skills else [],
+        risk_flags=json.loads(r.risk_flags) if r.risk_flags else [],
+        summary=r.summary,
+        recommendation=r.recommendation,
+        interview_questions=json.loads(r.interview_questions) if r.interview_questions else [],
+        llm_provider=r.llm_provider,
+        created_at=r.created_at,
+    )
+

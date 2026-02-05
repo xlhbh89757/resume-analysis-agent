@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,6 +15,7 @@
     <!-- Markdown Parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
+
 <body>
     <div id="app">
         <!-- Sidebar -->
@@ -42,6 +44,11 @@
                         <i class="fa-solid fa-code-compare"></i> 匹配分析
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a href="#" class="nav-link" data-view="history">
+                        <i class="fa-solid fa-clock-rotate-left"></i> 匹配记录
+                    </a>
+                </li>
             </ul>
         </aside>
 
@@ -63,13 +70,14 @@
     </div>
 
     <!-- Upload Modal -->
-    <div id="uploadModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="uploadModal" class="modal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
         <div class="card" style="width: 500px; max-width: 90%;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                 <h3>上传简历</h3>
                 <i class="fa-solid fa-xmark" style="cursor: pointer;" onclick="hideUploadModal()"></i>
             </div>
-            
+
             <div class="upload-zone" id="dropZone">
                 <i class="fa-solid fa-file-pdf upload-icon"></i>
                 <p>点击或拖拽简历文件 (PDF/DOCX)</p>
@@ -87,4 +95,5 @@
 
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>
