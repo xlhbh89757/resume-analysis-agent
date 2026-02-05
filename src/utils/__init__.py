@@ -1,0 +1,14 @@
+"""工具函数模块"""
+from src.utils.prompts import (
+    RESUME_EXTRACTION_PROMPT,
+    JD_MATCH_PROMPT,
+    RISK_ANALYSIS_PROMPT,
+    RESUME_SUMMARY_PROMPT,
+)
+
+__all__ = [
+    "RESUME_EXTRACTION_PROMPT",
+    "JD_MATCH_PROMPT",
+    "RISK_ANALYSIS_PROMPT",
+    "RESUME_SUMMARY_PROMPT",
+]

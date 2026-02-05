@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume AI - 智能简历分析</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-robot"></i> Resume AI
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="#" class="nav-link active" data-view="dashboard">
+                        <i class="fa-solid fa-chart-line"></i> 仪表盘
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#" class="nav-link" data-view="candidates">
+                        <i class="fa-solid fa-users"></i> 候选人库
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#" class="nav-link" data-view="jobs">
+                        <i class="fa-solid fa-briefcase"></i> 职位管理
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#" class="nav-link" data-view="match">
+                        <i class="fa-solid fa-code-compare"></i> 匹配分析
+                    </a>
+                </li>
+            </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <h1 class="page-title" id="pageTitle">仪表盘</h1>
+                <div class="header-actions">
+                    <button class="btn btn-primary" onclick="showUploadModal()">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> 上传简历
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-area" id="contentArea">
+                <!-- Views will be rendered here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 500px; max-width: 90%;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <h3>上传简历</h3>
+                <i class="fa-solid fa-xmark" style="cursor: pointer;" onclick="hideUploadModal()"></i>
+            </div>
+            
+            <div class="upload-zone" id="dropZone">
+                <i class="fa-solid fa-file-pdf upload-icon"></i>
+                <p>点击或拖拽简历文件 (PDF/DOCX)</p>
+                <input type="file" id="fileInput" accept=".pdf,.docx,.doc" style="display: none;">
+            </div>
+
+            <div id="uploadProgress" style="margin-top: 15px; display: none;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div class="loader"></div>
+                    <span>正在上传并分析...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

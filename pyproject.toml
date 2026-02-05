@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "resume-agent"
+version = "0.1.0"
+description = "智能简历分析 Agent - 支持 HR 批量筛选和 ATS 系统集成"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.110.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+sqlalchemy = "^2.0.0"
+alembic = "^1.13.0"
+pydantic = "^2.6.0"
+pydantic-settings = "^2.1.0"
+celery = "^5.3.0"
+redis = "^5.0.0"
+psycopg2-binary = "^2.9.0"
+pypdf2 = "^3.0.0"
+python-docx = "^1.1.0"
+vllm = "^0.3.0"
+transformers = "^4.37.0"
+qdrant-client = "^1.7.0"
+fastembed = "^0.2.0"
+pyyaml = "^6.0"
+python-multipart = "^0.0.9"
+aiofiles = "^23.2.1"
+httpx = "^0.27.0"
+openai = "^1.12.0"
+anthropic = "^0.18.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.0"
+pytest-cov = "^4.1.0"
+black = "^24.1.0"
+ruff = "^0.2.0"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
