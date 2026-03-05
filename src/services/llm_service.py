@@ -35,6 +35,7 @@ class LLMAnalysisService:
             result = await LLMProviderManager.generate_json_with_fallback(
                 prompt,
                 primary_provider=self.provider_name,
+                max_tokens=4096,
             )
             return result
         except Exception as e:
@@ -184,7 +185,9 @@ class LLMAnalysisService:
             "education_level": None,
             "years_of_experience": None,
             "current_position": None,
+            "summary": None,
             "work_experiences": [],
+            "project_experiences": [],
             "skills": [],
         }
         

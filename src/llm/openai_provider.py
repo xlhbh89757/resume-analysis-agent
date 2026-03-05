@@ -56,6 +56,15 @@ class OpenAIProvider(BaseLLMProvider):
             )
             response.raise_for_status()
             data = response.json()
+            finish_reason = None
+            if data.get("choices"):
+                finish_reason = data["choices"][0].get("finish_reason")
+            if finish_reason == "length":
+                logger.warning(
+                    "LLM output truncated: finish_reason=length, model=%s, max_tokens=%s",
+                    self.model,
+                    max_tokens,
+                )
             
             if data.get("choices") and data["choices"][0].get("message"):
                 return data["choices"][0]["message"]["content"].strip()
@@ -67,47 +76,69 @@ class OpenAIProvider(BaseLLMProvider):
         **kwargs
     ) -> Dict[str, Any]:
         """生成 JSON 格式输出"""
-        # 移除 strict JSON mode，依赖 Prompt 指令和后处理，以提高兼容性
+        max_tokens = kwargs.pop("max_tokens", 4096)
+        base_kwargs = {"max_tokens": max_tokens, **kwargs}
         try:
-            # 尝试生成文本，使用低温度以增加确定性
+            # 优先使用 JSON mode，避免 markdown 包裹和格式漂移
             response_text = await self.generate(
-                prompt, 
-                temperature=0.3,
-                **kwargs
+                prompt,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                **base_kwargs,
             )
-            
-            if not response_text:
-                return {}
-            
-            # 尝试直接解析
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                pass
-                
-            # 尝试从 Markdown 代码块提取
-            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
-            if json_match:
-                try:
-                    return json.loads(json_match.group(1))
-                except json.JSONDecodeError:
-                    pass
-            
-            # 尝试查找第一个 { 和 最后一个 }
-            start = response_text.find('{')
-            end = response_text.rfind('}')
-            if start != -1 and end != -1:
-                try:
-                    return json.loads(response_text[start:end+1])
-                except json.JSONDecodeError:
-                    pass
-                    
+            parsed = self._parse_json_response(response_text)
+            if parsed:
+                return parsed
+        except Exception as e:
+            logger.warning(f"JSON mode request failed, fallback to text mode: {e}")
+
+        try:
+            # 回退到文本模式并做鲁棒解析
+            response_text = await self.generate(
+                prompt,
+                temperature=0.1,
+                **base_kwargs,
+            )
+            parsed = self._parse_json_response(response_text)
+            if parsed:
+                return parsed
+
             logger.warning(f"Failed to parse JSON from response: {response_text[:200]}...")
             return {}
-            
+
         except Exception as e:
             logger.error(f"Error in generate_json: {e}")
             return {}
+
+    def _parse_json_response(self, response_text: str) -> Dict[str, Any]:
+        """Parse LLM response into JSON with tolerant fallbacks."""
+        if not response_text:
+            return {}
+
+        # 尝试直接解析
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试从 Markdown 代码块提取
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_text)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 尝试查找第一个 { 和 最后一个 }
+        start = response_text.find('{')
+        end = response_text.rfind('}')
+        if start != -1 and end != -1:
+            try:
+                return json.loads(response_text[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        return {}
     
     @property
     def provider_name(self) -> str:
