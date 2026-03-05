@@ -36,9 +36,10 @@ class ProjectExperienceSchema(BaseModel):
     end_date: Optional[str] = None
     description: Optional[str] = None
     technologies: Optional[List[str]] = None
+    responsibilities: Optional[List[str]] = None
     achievements: Optional[List[str]] = None
     
-    @field_validator('technologies', 'achievements', mode='before')
+    @field_validator('technologies', 'responsibilities', 'achievements', mode='before')
     @classmethod
     def parse_json_list(cls, v: Any) -> Optional[List[str]]:
         """解析 JSON 字符串为列表"""

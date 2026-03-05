@@ -144,7 +144,9 @@ class LLMAnalysisService:
             "education_level": None,
             "years_of_experience": None,
             "current_position": None,
+            "summary": None,
             "work_experiences": [],
+            "project_experiences": [],
             "skills": [],
         }
         

@@ -2,6 +2,7 @@
 import shutil
 import uuid
 import logging
+import json
 from pathlib import Path
 from typing import List
 
@@ -14,6 +15,7 @@ from src.models.candidate import Candidate, WorkExperience, Skill, ProjectExperi
 from src.services.document_parser import DocumentParser
 from src.services.llm_service import LLMAnalysisService
 from src.services.vector_service import VectorService
+from src.utils.project_experience_normalizer import to_text_list
 from src.api.schemas.resume import (
     ResumeUploadResponse,
     CandidateResponse,
@@ -148,7 +150,11 @@ async def analyze_resume_background(candidate_id: int, resume_text: str):
         
         # 添加项目经验
         for proj in extracted_info.get("project_experiences", []):
-            import json
+            technologies = to_text_list(proj.get("technologies"))
+            responsibilities = to_text_list(
+                proj.get("responsibilities") or proj.get("work_responsibilities")
+            )
+            achievements = to_text_list(proj.get("achievements"))
             project_exp = ProjectExperience(
                 candidate_id=candidate.id,
                 project_name=proj.get("project_name"),
@@ -156,8 +162,9 @@ async def analyze_resume_background(candidate_id: int, resume_text: str):
                 start_date=proj.get("start_date"),
                 end_date=proj.get("end_date"),
                 description=proj.get("description"),
-                technologies=json.dumps(proj.get("technologies", []), ensure_ascii=False),
-                achievements=json.dumps(proj.get("achievements", []), ensure_ascii=False),
+                technologies=json.dumps(technologies, ensure_ascii=False),
+                responsibilities=json.dumps(responsibilities, ensure_ascii=False),
+                achievements=json.dumps(achievements, ensure_ascii=False),
             )
             db.add(project_exp)
         

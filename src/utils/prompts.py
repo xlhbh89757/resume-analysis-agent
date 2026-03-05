@@ -31,6 +31,7 @@ RESUME_EXTRACTION_PROMPT = """你是一个专业的简历分析专家。请从�
       "start_date": "开始日期",
       "end_date": "结束日期",
       "description": "项目描述",
+      "responsibilities": ["职责原文1", "职责原文2"],
       "technologies": ["技术1", "技术2"],
       "achievements": ["成果1", "成果2"]
     }}
@@ -51,6 +52,8 @@ RESUME_EXTRACTION_PROMPT = """你是一个专业的简历分析专家。请从�
 3. work_experiences 中的 responsibilities 应该是字符串,不是数组
 4. 日期尽量标准化为 YYYY-MM 格式
 5. 技能需要评估熟练度
+6. project_experiences 中 responsibilities 和 achievements 都尽量保留原始表述，不要改写成抽象总结
+7. 如果简历未明确项目成果，achievements 返回空数组，仍需尽量提取 responsibilities
 """
 
 JD_EXTRACTION_PROMPT = """你是一个专业的招聘专家。请从以下职位描述（JD）文本中提取关键信息，并以 JSON 格式返回。

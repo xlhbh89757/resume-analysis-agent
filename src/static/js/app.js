@@ -279,6 +279,26 @@ function renderCandidateItem(c) {
     `;
 }
 
+function asArray(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter(item => String(item).trim());
+    if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text) return [];
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) return parsed.filter(item => String(item).trim());
+        } catch (e) {
+            // Non-JSON string, fallback to line split below.
+        }
+        if (text.includes('\n')) {
+            return text.split('\n').map(s => s.trim()).filter(Boolean);
+        }
+        return [text];
+    }
+    return [String(value).trim()].filter(Boolean);
+}
+
 async function viewCandidate(id) {
     // Fetch details
     try {
@@ -341,17 +361,25 @@ async function viewCandidate(id) {
                             <h4 style="margin: 0 0 8px 0;">${proj.project_name || '项目'} - ${proj.role || '成员'}</h4>
                             <p style="font-size: 0.875rem; color: #666; margin: 4px 0;">${proj.start_date || '?'} ~ ${proj.end_date || '至今'}</p>
                             <p style="margin: 8px 0;">${proj.description || ''}</p>
-                            ${proj.technologies && proj.technologies.length > 0 ? `
+                            ${asArray(proj.technologies).length > 0 ? `
                                 <div style="margin: 8px 0;">
                                     <strong>技术栈:</strong> 
-                                    ${proj.technologies.map(tech => `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: white; border-radius: 4px; font-size: 0.875rem;">${tech}</span>`).join('')}
+                                    ${asArray(proj.technologies).map(tech => `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: white; border-radius: 4px; font-size: 0.875rem;">${tech}</span>`).join('')}
                                 </div>
                             ` : ''}
-                            ${proj.achievements && proj.achievements.length > 0 ? `
+                            ${asArray(proj.responsibilities).length > 0 ? `
+                                <div style="margin: 8px 0;">
+                                    <strong>项目职责:</strong>
+                                    <ul style="margin: 4px 0; padding-left: 20px;">
+                                        ${asArray(proj.responsibilities).map(item => `<li>${item}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            ${asArray(proj.achievements).length > 0 ? `
                                 <div style="margin: 8px 0;">
                                     <strong>项目成果:</strong>
                                     <ul style="margin: 4px 0; padding-left: 20px;">
-                                        ${proj.achievements.map(ach => `<li>${ach}</li>`).join('')}
+                                        ${asArray(proj.achievements).map(ach => `<li>${ach}</li>`).join('')}
                                     </ul>
                                 </div>
                             ` : ''}
