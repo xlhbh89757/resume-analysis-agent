@@ -54,6 +54,8 @@ RESUME_EXTRACTION_PROMPT = """你是一个专业的简历分析专家。请从�
 5. 技能需要评估熟练度
 6. project_experiences 中 responsibilities 和 achievements 都尽量保留原始表述，不要改写成抽象总结
 7. 如果简历未明确项目成果，achievements 返回空数组，仍需尽量提取 responsibilities
+8. 忽略疑似水印/噪声串（如类似 `5e2074214e41d9581HR-...~~` 的随机编码），不要把它们当作技能或经历内容
+9. 若原文没有足够信息，不要猜测补全，必须返回 null 或空数组
 """
 
 JD_EXTRACTION_PROMPT = """你是一个专业的招聘专家。请从以下职位描述（JD）文本中提取关键信息，并以 JSON 格式返回。
