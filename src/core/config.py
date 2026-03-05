@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     
     # 数据库配置
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/resume_agent"
+    database_url: str = "mysql+pymysql://root:root@localhost:3306/resume_agent?charset=utf8mb4"
     
     # Redis 配置
     redis_url: str = "redis://localhost:6379/0"
