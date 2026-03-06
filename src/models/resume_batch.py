@@ -24,6 +24,7 @@ class ResumeStructBatch(Base):
     finished_at = Column(DateTime(timezone=True), nullable=True, comment="结束时间")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
 
+    # 一个批次会聚合多条结构化任务，用于汇总进度和结果。
     tasks = relationship(
         "ResumeStructTask",
         back_populates="batch",
@@ -65,6 +66,7 @@ class ResumeStructTask(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
 
     batch = relationship("ResumeStructBatch", back_populates="tasks")
+    # 死信表只记录最终失败任务，便于后续人工复核或重放。
     deadletters = relationship(
         "ResumeStructDeadletter",
         back_populates="task",

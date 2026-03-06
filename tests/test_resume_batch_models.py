@@ -11,6 +11,7 @@ from src.models.resume_batch import (
 
 
 def make_session():
+    # 用内存 sqlite 做 ORM 单测，不影响 MySQL 数据。
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine)()
@@ -52,6 +53,7 @@ def test_resume_struct_task_unique_idempotency_key():
     session.add(second)
 
     try:
+        # 唯一幂等键必须拦住重复任务写入。
         session.commit()
         raised = False
     except IntegrityError:
