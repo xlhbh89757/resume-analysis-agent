@@ -33,6 +33,6 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """初始化数据库表"""
     # 导入所有模型以确保它们被注册
-    from src.models import candidate, job, match  # noqa: F401
+    from src.models import candidate, job, match, resume_batch  # noqa: F401
     
     Base.metadata.create_all(bind=engine)

@@ -23,6 +23,9 @@ def main():
         print("  - skills")
         print("  - job_descriptions")
         print("  - match_results")
+        print("  - resume_struct_batches")
+        print("  - resume_struct_tasks")
+        print("  - resume_struct_deadletters")
     except Exception as e:
         print(f"Failed to initialize database: {e}")
         sys.exit(1)
