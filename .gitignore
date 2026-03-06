@@ -45,7 +45,7 @@ uploads/
 *.log
 
 # LLM Models
-models/
+/models/
 *.bin
 *.safetensors
 *.gguf
