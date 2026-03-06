@@ -71,3 +71,6 @@ htmlcov/
 
 # Docker
 .dockerignore
+
+# Git worktrees
+.worktrees/
