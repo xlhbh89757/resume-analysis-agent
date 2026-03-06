@@ -1,0 +1,98 @@
+﻿from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.core.database import Base
+from src.models.candidate import Candidate
+from src.models.resume_batch import ResumeStructBatch, ResumeStructTask
+from src.services.persist_service import PersistService
+
+
+def make_session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine)()
+
+
+def create_task(session):
+    batch = ResumeStructBatch(batch_id="batch-1", total_count=1, status="running")
+    session.add(batch)
+    session.commit()
+
+    task = ResumeStructTask(
+        batch_id=batch.id,
+        employee_id="E001",
+        resume_created_time="2026-03-06T10:00:00",
+        idempotency_key="E001:2026-03-06T10:00:00",
+        status="queued",
+    )
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def make_payload(task_id):
+    return {
+        "task_id": task_id,
+        "employee_id": "E001",
+        "resume_created_time": "2026-03-06T10:00:00",
+        "resume_text": "候选人简历原文",
+        "structured_resume": {
+            "name": "欧桂华",
+            "email": "1136309383@qq.com",
+            "phone": "19523866354",
+            "education_level": "本科",
+            "years_of_experience": 5,
+            "current_position": "数据开发工程师",
+            "summary": "负责数据仓库建设与迁移。",
+            "work_experiences": [
+                {
+                    "company_name": "深德科",
+                    "position": "数据开发工程师",
+                    "start_date": "2021-01",
+                    "end_date": "2026-01",
+                    "responsibilities": ["负责 Oracle 到 Greenplum 数据迁移"],
+                    "achievements": ["完成多套核心模型迁移"]
+                }
+            ],
+            "project_experiences": [
+                {
+                    "project_name": "数据仓库迁移",
+                    "role": "开发工程师",
+                    "start_date": "2024-01",
+                    "end_date": "2025-01",
+                    "description": "完成仓库迁移改造",
+                    "technologies": ["Oracle", "Greenplum"],
+                    "responsibilities": ["迁移调度作业"],
+                    "achievements": ["提升迁移稳定性"]
+                }
+            ],
+            "skills": [
+                {
+                    "skill_name": "Python",
+                    "skill_category": "编程语言",
+                    "proficiency_level": "熟练"
+                }
+            ]
+        }
+    }
+
+
+def test_persist_skips_when_idempotency_key_already_success():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    payload = make_payload(task.id)
+
+    first = service.persist_structured_resume(payload)
+    second = service.persist_structured_resume(payload)
+
+    candidate = session.query(Candidate).one()
+    session.refresh(task)
+
+    assert first["status"] == "success"
+    assert first["candidate_id"] == candidate.id
+    assert second["status"] == "skipped"
+    assert session.query(Candidate).count() == 1
+    assert candidate.work_experiences[0].achievements == '["完成多套核心模型迁移"]'
+    assert task.status == "success"

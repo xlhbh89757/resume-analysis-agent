@@ -1,4 +1,4 @@
-"""简历相关 API 路由"""
+﻿"""简历相关 API 路由"""
 import shutil
 import uuid
 import logging
@@ -15,6 +15,7 @@ from src.models.candidate import Candidate, WorkExperience, Skill, ProjectExperi
 from src.services.document_parser import DocumentParser
 from src.services.llm_service import LLMAnalysisService
 from src.services.vector_service import VectorService
+from src.services.persist_service import PersistService
 from src.utils.project_experience_normalizer import to_text_list
 from src.utils.work_experience_normalizer import normalize_work_experience
 from src.api.schemas.resume import (
