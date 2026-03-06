@@ -13,6 +13,7 @@ class WorkExperienceSchema(BaseModel):
     end_date: Optional[str] = None
     duration_months: Optional[int] = None
     responsibilities: Optional[str] = None  # 存储为字符串
+    achievements: Optional[str] = None  # 存储为字符串
     
     class Config:
         from_attributes = True

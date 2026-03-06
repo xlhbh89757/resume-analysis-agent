@@ -16,6 +16,7 @@ from src.services.document_parser import DocumentParser
 from src.services.llm_service import LLMAnalysisService
 from src.services.vector_service import VectorService
 from src.utils.project_experience_normalizer import to_text_list
+from src.utils.work_experience_normalizer import normalize_work_experience
 from src.api.schemas.resume import (
     ResumeUploadResponse,
     CandidateResponse,
@@ -138,13 +139,15 @@ async def analyze_resume_background(candidate_id: int, resume_text: str):
         
         # 添加工作经历
         for exp in extracted_info.get("work_experiences", []):
+            normalized_work_exp = normalize_work_experience(exp)
             work_exp = WorkExperience(
                 candidate_id=candidate.id,
-                company_name=exp.get("company_name"),
-                position=exp.get("position"),
-                start_date=exp.get("start_date"),
-                end_date=exp.get("end_date"),
-                responsibilities=str(exp.get("responsibilities", [])),
+                company_name=normalized_work_exp["company_name"],
+                position=normalized_work_exp["position"],
+                start_date=normalized_work_exp["start_date"],
+                end_date=normalized_work_exp["end_date"],
+                responsibilities=normalized_work_exp["responsibilities"],
+                achievements=normalized_work_exp["achievements"],
             )
             db.add(work_exp)
         
