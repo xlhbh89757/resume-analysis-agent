@@ -1,13 +1,16 @@
-"""LLM 分析服务 - 简历信息提取和 JD 匹配"""
+﻿"""LLM 分析服务。"""
+
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
+from src.core.config import settings
 from src.llm.manager import LLMProviderManager
+from src.services.budget_guard import BudgetExceededError, BudgetGuard
 from src.utils.prompts import (
-    RESUME_EXTRACTION_PROMPT,
     JD_EXTRACTION_PROMPT,
     JD_MATCH_PROMPT,
+    RESUME_EXTRACTION_PROMPT,
     RISK_ANALYSIS_PROMPT,
 )
 
@@ -15,129 +18,133 @@ logger = logging.getLogger(__name__)
 
 
 class LLMAnalysisService:
-    """LLM 分析服务
-    
-    负责调用 LLM 进行简历信息提取、JD 匹配等分析任务。
-    """
-    
-    def __init__(self, provider_name: Optional[str] = None):
-        """
-        Args:
-            provider_name: 指定使用的 LLM Provider，不指定则使用默认
-        """
+    """负责调用 LLM 执行简历提取和匹配分析。"""
+
+    def __init__(
+        self,
+        provider_name: Optional[str] = None,
+        budget_guard: Optional[BudgetGuard] = None,
+    ):
         self.provider_name = provider_name
-    
+        self.budget_guard = budget_guard or BudgetGuard()
+
     async def extract_jd_info(self, jd_text: str) -> Dict[str, Any]:
-        """从 JD 文本中提取结构化信息"""
         prompt = JD_EXTRACTION_PROMPT.format(jd_text=jd_text)
-        
+
         try:
+            self.budget_guard.assert_can_consume(self._estimate_cost(prompt))
             result = await LLMProviderManager.generate_json_with_fallback(
                 prompt,
                 primary_provider=self.provider_name,
                 max_tokens=4096,
             )
+            self.budget_guard.record_usage(self._estimate_cost(prompt, result))
             return result
+        except BudgetExceededError:
+            raise
         except Exception as e:
             logger.error(f"Failed to extract JD info: {e}")
             return {}
 
     async def extract_resume_info(self, resume_text: str) -> Dict[str, Any]:
-        """从简历中提取结构化信息
-        
-        Args:
-            resume_text: 简历原始文本
-            
-        Returns:
-            结构化的简历信息字典
-        """
         prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=resume_text)
-        
+
         try:
+            estimated_cost = self._estimate_cost(prompt)
+            self.budget_guard.assert_can_consume(estimated_cost)
             result = await LLMProviderManager.generate_json_with_fallback(
                 prompt,
                 primary_provider=self.provider_name,
             )
-            
-            # 验证并补充必要字段
+            actual_cost = self._estimate_cost(prompt, result)
+            self.budget_guard.record_usage(actual_cost)
+
             result = self._validate_extraction_result(result)
-            
+            result["_llm_meta"] = {
+                "provider": self.provider_name or settings.llm_provider,
+                "estimated_cost": actual_cost,
+                "budget_blocked": False,
+            }
             logger.info(f"Extracted resume info: name={result.get('name')}")
             return result
-            
+        except BudgetExceededError as e:
+            logger.warning(f"Resume extraction blocked by budget guard: {e.message}")
+            result = self._fallback_extraction(resume_text)
+            result["_llm_meta"] = {
+                "provider": self.provider_name or settings.llm_provider,
+                "error_code": e.error_code,
+                "budget_blocked": True,
+            }
+            return result
         except Exception as e:
             logger.error(f"Failed to extract resume info: {e}")
-            # 返回降级结果
-            return self._fallback_extraction(resume_text)
-    
+            result = self._fallback_extraction(resume_text)
+            result["_llm_meta"] = {
+                "provider": self.provider_name or settings.llm_provider,
+                "budget_blocked": False,
+            }
+            return result
+
     async def analyze_jd_match(
         self,
         candidate_info: Dict[str, Any],
         job_info: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """分析候选人与 JD 的匹配度
-        
-        Args:
-            candidate_info: 候选人结构化信息
-            job_info: JD 信息
-            
-        Returns:
-            匹配分析结果
-        """
         prompt = JD_MATCH_PROMPT.format(
             candidate_info=json.dumps(candidate_info, ensure_ascii=False, indent=2),
             job_info=json.dumps(job_info, ensure_ascii=False, indent=2),
         )
-        
+
         try:
+            self.budget_guard.assert_can_consume(self._estimate_cost(prompt))
             result = await LLMProviderManager.generate_json_with_fallback(
                 prompt,
                 primary_provider=self.provider_name,
             )
-            
-            # 确保评分在合理范围内
+            self.budget_guard.record_usage(self._estimate_cost(prompt, result))
             result = self._normalize_scores(result)
-            
-            logger.info(f"JD match analysis completed, overall_score={result.get('overall_score')}")
+            logger.info(
+                f"JD match analysis completed, overall_score={result.get('overall_score')}"
+            )
             return result
-            
+        except BudgetExceededError:
+            raise
         except Exception as e:
             logger.error(f"Failed to analyze JD match: {e}")
             return self._fallback_match_result()
-    
+
     async def analyze_risks(
         self,
         candidate_info: Dict[str, Any],
         work_experiences: List[Dict[str, Any]],
     ) -> List[str]:
-        """分析候选人潜在风险
-        
-        Args:
-            candidate_info: 候选人信息
-            work_experiences: 工作经历列表
-            
-        Returns:
-            风险标识列表
-        """
         prompt = RISK_ANALYSIS_PROMPT.format(
             candidate_info=json.dumps(candidate_info, ensure_ascii=False, indent=2),
             work_experiences=json.dumps(work_experiences, ensure_ascii=False, indent=2),
         )
-        
+
         try:
+            self.budget_guard.assert_can_consume(self._estimate_cost(prompt))
             result = await LLMProviderManager.generate_json_with_fallback(
                 prompt,
                 primary_provider=self.provider_name,
             )
-            
+            self.budget_guard.record_usage(self._estimate_cost(prompt, result))
             return result.get("risk_flags", [])
-            
+        except BudgetExceededError:
+            raise
         except Exception as e:
             logger.error(f"Failed to analyze risks: {e}")
             return []
-    
+
+    def _estimate_cost(self, prompt: str, result: Optional[Dict[str, Any]] = None) -> float:
+        """按字符长度粗略估算一次 LLM 调用成本。"""
+        prompt_tokens = max(len(prompt) // 4, 1)
+        response_tokens = max(len(json.dumps(result, ensure_ascii=False)) // 4, 1) if result else 256
+        total_tokens = prompt_tokens + response_tokens
+        return round(total_tokens / 1_000_000 * 2.0, 6)
+
     def _validate_extraction_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """验证提取结果并补充缺失字段"""
         default_fields = {
             "name": None,
             "email": None,
@@ -150,34 +157,32 @@ class LLMAnalysisService:
             "project_experiences": [],
             "skills": [],
         }
-        
+
         for key, default_value in default_fields.items():
             if key not in result:
                 result[key] = default_value
-        
+
         return result
-    
+
     def _normalize_scores(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """规范化评分"""
         score_fields = [
             "overall_score",
             "skill_match_score",
             "experience_match_score",
             "education_match_score",
         ]
-        
+
         for field in score_fields:
             if field in result:
                 score = result[field]
                 if isinstance(score, (int, float)):
                     result[field] = max(0, min(100, score))
-        
+
         return result
-    
+
     def _fallback_extraction(self, resume_text: str) -> Dict[str, Any]:
-        """降级提取：使用简单规则提取"""
         import re
-        
+
         result = {
             "name": None,
             "email": None,
@@ -190,21 +195,18 @@ class LLMAnalysisService:
             "project_experiences": [],
             "skills": [],
         }
-        
-        # 提取邮箱
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', resume_text)
+
+        email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", resume_text)
         if email_match:
             result["email"] = email_match.group()
-        
-        # 提取手机号
-        phone_match = re.search(r'1[3-9]\d{9}', resume_text)
+
+        phone_match = re.search(r"1[3-9]\d{9}", resume_text)
         if phone_match:
             result["phone"] = phone_match.group()
-        
+
         return result
-    
+
     def _fallback_match_result(self) -> Dict[str, Any]:
-        """降级匹配结果"""
         return {
             "overall_score": 0,
             "skill_match_score": 0,
