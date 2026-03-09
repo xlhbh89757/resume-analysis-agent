@@ -26,18 +26,11 @@ def build_extract_payload(
     resume_created_time: str,
     temp_url: str | None = None,
 ) -> dict[str, Any]:
-    """构造抽取阶段任务载荷。
-
-    队列里只保留稳定标识，临时 URL 由 Worker 执行时重新申请，
-    这样可以避免排队期间 URL 过期导致任务失效。
-    """
-    # 只传 employee_id 和简历创建时间，后续任务据此计算幂等键。
+    """构造抽取阶段任务载荷。"""
     payload = {
         "employee_id": employee_id,
         "resume_created_time": resume_created_time,
     }
-
-    # 这里显式忽略 temp_url，防止临时链接被误塞进消息队列。
     _ = temp_url
     return payload
 
@@ -91,10 +84,21 @@ def build_persist_payload(
     structured_resume: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构造幂等落库阶段输入。"""
+    llm_meta = structured_resume.get("_llm_meta", {}) if structured_resume else {}
+    resume_text = llm_payload.get("resume_text", "")
+    fallback_tokens_in = max(len(resume_text) // 4, 1) if resume_text else None
+    fallback_tokens_out = (
+        max(len(str(structured_resume)) // 4, 1) if structured_resume else None
+    )
     return {
         "employee_id": llm_payload["employee_id"],
         "resume_created_time": llm_payload["resume_created_time"],
+        "resume_text": resume_text,
         "structured_resume": structured_resume or {},
+        # 统一把成本元数据带到落库阶段，便于任务治理表记录预算消耗。
+        "llm_tokens_in": llm_meta.get("tokens_in", fallback_tokens_in),
+        "llm_tokens_out": llm_meta.get("tokens_out", fallback_tokens_out),
+        "llm_cost": llm_meta.get("estimated_cost"),
     }
 
 

@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from src.models.candidate import Candidate, ProjectExperience, Skill, WorkExperience
-from src.models.resume_batch import ResumeStructTask
+from src.models.resume_batch import ResumeStructDeadletter, ResumeStructTask
 from src.utils.project_experience_normalizer import to_text_list
 from src.utils.work_experience_normalizer import normalize_work_experience
 
@@ -121,6 +121,10 @@ class PersistService:
             if task:
                 task.status = "success"
                 task.finished_at = now
+                task.llm_tokens_in = payload.get("llm_tokens_in")
+                task.llm_tokens_out = payload.get("llm_tokens_out")
+                llm_cost = payload.get("llm_cost")
+                task.llm_cost = str(llm_cost) if llm_cost is not None else None
                 if task.batch:
                     task.batch.success_count += 1
 
@@ -135,6 +139,42 @@ class PersistService:
             self.db.rollback()
             self._mark_task_failed(task_id=task.id if task else None, error_message=str(exc))
             raise
+
+    def create_deadletter(
+        self,
+        payload: dict[str, Any],
+        error_code: str,
+        error_message: str,
+    ) -> dict[str, Any]:
+        """记录死信任务，保留后续重试所需上下文。"""
+        task = self._get_task(
+            payload.get("task_id"),
+            f"{payload['employee_id']}:{payload['resume_created_time']}",
+        )
+        if task is None:
+            raise ValueError("ResumeStructTask not found for deadletter payload")
+
+        task.status = "dead"
+        task.error_code = error_code
+        task.error_message = error_message
+        task.finished_at = datetime.utcnow()
+
+        deadletter = ResumeStructDeadletter(
+            task_id=task.id,
+            employee_id=payload["employee_id"],
+            resume_created_time=payload["resume_created_time"],
+            last_error=error_message,
+            payload_snapshot=json.dumps(payload, ensure_ascii=False),
+        )
+        self.db.add(deadletter)
+        self.db.commit()
+        self.db.refresh(deadletter)
+
+        return {
+            "status": "dead",
+            "deadletter_id": deadletter.id,
+            "error_code": error_code,
+        }
 
     def _get_task(self, task_id: int | None, idempotency_key: str) -> ResumeStructTask | None:
         if task_id is not None:
