@@ -16,6 +16,7 @@ from src.services.document_parser import DocumentParser
 from src.services.llm_service import LLMAnalysisService
 from src.services.vector_service import VectorService
 from src.services.persist_service import PersistService
+from src.services.url_structuring_service import URLStructuringService
 from src.utils.project_experience_normalizer import to_text_list
 from src.utils.work_experience_normalizer import normalize_work_experience
 from src.api.schemas.resume import (
@@ -25,6 +26,9 @@ from src.api.schemas.resume import (
     CandidateSearchRequest,
     CandidateSearchResponse,
     SearchResultItem,
+    ResumeUrlStructureRequest,
+    EmployeeResumeStructureRequest,
+    ResumeStructureResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -216,6 +220,48 @@ async def analyze_resume_background(candidate_id: int, resume_text: str):
             pass
     finally:
         db.close()
+
+
+@router.post("/structure-from-url", response_model=ResumeStructureResponse)
+async def structure_resume_from_url(
+    request: ResumeUrlStructureRequest,
+    db: Session = Depends(get_db),
+):
+    """通过简历文件 URL 同步完成结构化并落库。"""
+    service = URLStructuringService(db=db)
+    result = await service.structure_from_url(request.resume_url)
+
+    # 接口只返回结构化摘要，不直接回传完整原始简历文本。
+    return {
+        "status": result.get("status"),
+        "candidate_id": result.get("candidate_id"),
+        "idempotency_key": result.get("idempotency_key"),
+        "resume_url": result.get("resume_url"),
+        "structured_resume": result.get("structured_resume") or {},
+    }
+
+
+@router.post("/structure-from-employee", response_model=ResumeStructureResponse)
+async def structure_resume_from_employee(
+    request: EmployeeResumeStructureRequest,
+    db: Session = Depends(get_db),
+):
+    """通过 employee_id 生成临时 URL 后同步完成结构化并落库。"""
+    service = URLStructuringService(db=db)
+    result = await service.structure_from_employee(
+        employee_id=request.employee_id,
+        resume_created_time=request.resume_created_time,
+    )
+
+    return {
+        "status": result.get("status"),
+        "candidate_id": result.get("candidate_id"),
+        "idempotency_key": result.get("idempotency_key"),
+        "employee_id": request.employee_id,
+        "resume_created_time": request.resume_created_time,
+        "resume_url": result.get("resume_url"),
+        "structured_resume": result.get("structured_resume") or {},
+    }
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)

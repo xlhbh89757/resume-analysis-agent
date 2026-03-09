@@ -114,3 +114,25 @@ class CandidateSearchResponse(BaseModel):
     """搜索响应"""
     results: List[SearchResultItem]
     total: int
+
+
+class ResumeUrlStructureRequest(BaseModel):
+    """按 URL 触发简历结构化请求。"""
+    resume_url: str
+
+
+class EmployeeResumeStructureRequest(BaseModel):
+    """按员工标识触发简历结构化请求。"""
+    employee_id: str
+    resume_created_time: str
+
+
+class ResumeStructureResponse(BaseModel):
+    """同步简历结构化结果。"""
+    status: str
+    candidate_id: Optional[int] = None
+    idempotency_key: Optional[str] = None
+    employee_id: Optional[str] = None
+    resume_created_time: Optional[str] = None
+    resume_url: Optional[str] = None
+    structured_resume: dict = Field(default_factory=dict)

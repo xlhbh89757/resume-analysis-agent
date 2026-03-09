@@ -42,6 +42,26 @@ def build_extract_payload(
     return payload
 
 
+def build_extract_service_request(
+    extract_payload: dict[str, Any],
+    temp_url: str | None = None,
+) -> dict[str, Any]:
+    """构造共享 URL 服务的抽取请求上下文。"""
+    if temp_url:
+        return {
+            "mode": "url",
+            "resume_url": temp_url,
+            "employee_id": extract_payload["employee_id"],
+            "resume_created_time": extract_payload["resume_created_time"],
+        }
+
+    return {
+        "mode": "employee",
+        "employee_id": extract_payload["employee_id"],
+        "resume_created_time": extract_payload["resume_created_time"],
+    }
+
+
 def build_dispatch_payload(batch_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     """构造批次分发摘要，供调度层记录本轮投递范围。"""
     return {

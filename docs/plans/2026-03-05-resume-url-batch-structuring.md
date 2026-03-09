@@ -174,7 +174,43 @@ git add src/services/budget_guard.py src/services/llm_service.py tests/test_budg
 git commit -m "feat: 新增预算守卫与成本统计"
 ```
 
-### Task 6: Add temp-URL expiry retry policy
+### Task 6: Close the Celery end-to-end pipeline
+
+**Files:**
+- Modify: `src/tasks/analysis.py`
+- Modify: `src/tasks/pipeline.py`
+- Modify: `src/services/url_structuring_service.py`
+- Modify: `src/services/persist_service.py`
+- Test: `tests/test_celery_pipeline_e2e.py`
+
+**Step 1: Write the failing test**
+```python
+def test_extract_llm_persist_routes_failures_to_deadletter():
+    ...
+```
+
+**Step 2: Run test to verify it fails**
+Run: `pytest tests/test_celery_pipeline_e2e.py -q`
+Expected: FAIL because `extract -> llm -> persist -> deadletter` is not fully wired.
+
+**Step 3: Write minimal implementation**
+- Make `extract_resume_task` return the exact payload expected by `llm_extract_task`.
+- Make `llm_extract_task` call the real LLM extraction service and attach token/cost metadata.
+- Make `persist_result_task` call `PersistService.persist_structured_resume(...)`.
+- On task failure after retries, route normalized payload into `deadletter_task`.
+- Reuse the shared URL structuring service for URL download and text extraction so API and Celery stay consistent.
+
+**Step 4: Run test to verify it passes**
+Run: `pytest tests/test_celery_pipeline_e2e.py -q`
+Expected: PASS
+
+**Step 5: Commit**
+```bash
+git add src/tasks/analysis.py src/tasks/pipeline.py src/services/url_structuring_service.py src/services/persist_service.py tests/test_celery_pipeline_e2e.py
+git commit -m "feat: 打通Celery端到端结构化任务链"
+```
+
+### Task 7: Add temp-URL expiry retry policy
 
 **Files:**
 - Modify: `src/tasks/pipeline.py`
@@ -204,7 +240,7 @@ git add src/tasks/pipeline.py tests/test_temp_url_retry.py
 git commit -m "fix: 增加临时URL过期刷新重试"
 ```
 
-### Task 7: Add operational CLI for batch run/retry
+### Task 8: Add operational CLI for batch run/retry
 
 **Files:**
 - Create: `scripts/run_batch_structuring.py`
@@ -235,7 +271,7 @@ git add scripts/run_batch_structuring.py scripts/retry_deadletter.py tests/test_
 git commit -m "feat: 新增批处理与死信重试脚本"
 ```
 
-### Task 8: Verify E2E and document ops runbook
+### Task 9: Verify E2E and document ops runbook
 
 **Files:**
 - Create: `docs/runbooks/resume-batch-ops.md`
@@ -257,7 +293,7 @@ git add docs/runbooks/resume-batch-ops.md README.md
 git commit -m "docs: 增加离线批处理运维手册"
 ```
 
-### Task 9: Final rollout checklist
+### Task 10: Final rollout checklist
 
 **Files:**
 - Create: `docs/runbooks/resume-batch-rollout-checklist.md`

@@ -2,6 +2,7 @@
     PIPELINE_QUEUE_ROUTES,
     PIPELINE_TASK_NAMES,
     build_extract_payload,
+    build_extract_service_request,
 )
 
 
@@ -19,6 +20,7 @@ def test_pipeline_payload_excludes_temp_url():
     assert "temp_url" not in payload
 
 
+
 def test_pipeline_queue_routes_cover_all_stages():
     assert PIPELINE_TASK_NAMES == {
         "dispatch": "resume.pipeline.dispatch_batch",
@@ -33,4 +35,28 @@ def test_pipeline_queue_routes_cover_all_stages():
         PIPELINE_TASK_NAMES["llm"]: {"queue": "llm_queue"},
         PIPELINE_TASK_NAMES["persist"]: {"queue": "persist_queue"},
         PIPELINE_TASK_NAMES["deadletter"]: {"queue": "dead_letter_queue"},
+    }
+
+
+
+def test_extract_service_request_prefers_temp_url_when_present():
+    payload = build_extract_payload(
+        employee_id="E001",
+        resume_created_time="2026-03-06T10:00:00",
+    )
+
+    assert build_extract_service_request(
+        extract_payload=payload,
+        temp_url="https://cdn.example.com/temp.pdf",
+    ) == {
+        "mode": "url",
+        "resume_url": "https://cdn.example.com/temp.pdf",
+        "employee_id": "E001",
+        "resume_created_time": "2026-03-06T10:00:00",
+    }
+
+    assert build_extract_service_request(extract_payload=payload) == {
+        "mode": "employee",
+        "employee_id": "E001",
+        "resume_created_time": "2026-03-06T10:00:00",
     }

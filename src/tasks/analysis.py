@@ -1,14 +1,19 @@
 ﻿"""Celery 异步任务入口。"""
 
+import asyncio
+
 from celery import Celery
 
 from src.core.config import settings
+from src.core.database import SessionLocal
+from src.services.url_structuring_service import URLStructuringService
 from src.tasks.pipeline import (
     PIPELINE_QUEUE_ROUTES,
     PIPELINE_TASK_NAMES,
     build_deadletter_payload,
     build_dispatch_payload,
     build_extract_payload,
+    build_extract_service_request,
     build_llm_payload,
     build_persist_payload,
 )
@@ -65,12 +70,32 @@ def dispatch_batch_task(self, batch_id: str, items: list[dict]):
 @celery_app.task(name=PIPELINE_TASK_NAMES["extract"], bind=True, max_retries=3)
 def extract_resume_task(self, employee_id: str, resume_created_time: str, temp_url: str | None = None):
     """抽取阶段任务入口。"""
-    # Worker 执行时再申请临时 URL，避免 15 分钟链接在排队期间过期。
-    return build_extract_payload(
+    extract_payload = build_extract_payload(
         employee_id=employee_id,
         resume_created_time=resume_created_time,
         temp_url=temp_url,
     )
+    service_request = build_extract_service_request(
+        extract_payload=extract_payload,
+        temp_url=temp_url,
+    )
+
+    db = SessionLocal()
+    try:
+        service = URLStructuringService(db=db)
+        # 抽取阶段只负责把 URL 转成文本，后续仍交给 llm/persist 阶段处理。
+        if service_request["mode"] == "url":
+            resume_text = asyncio.run(
+                service.extract_resume_text_from_url(service_request["resume_url"])
+            )
+        else:
+            resume_text = asyncio.run(
+                service.extract_resume_text_from_employee(service_request["employee_id"])
+            )
+    finally:
+        db.close()
+
+    return build_llm_payload(extract_payload=extract_payload, text=resume_text)
 
 
 @celery_app.task(name=PIPELINE_TASK_NAMES["llm"], bind=True, max_retries=3)

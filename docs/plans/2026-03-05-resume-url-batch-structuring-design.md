@@ -44,6 +44,12 @@
 5. normalize
 6. persist(idempotent)
 
+补充约束:
+
+- `extract -> llm -> persist -> deadletter` 必须形成真正可执行的 Celery 闭环，不能只停留在任务骨架。
+- URL 下载与文本提取必须复用共享服务，避免 API 与 Celery 出现两套解析逻辑。
+- 失败任务必须统一落到标准错误码和死信表，便于按 `employee_id` 精准重试。
+
 ## 5. 并发与吞吐参数
 
 目标最低吞吐: 208 份/小时
