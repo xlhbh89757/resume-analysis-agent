@@ -1,63 +1,66 @@
-# Resume Analysis Agent
+﻿# Resume Analysis Agent
 
-智能简历分析 Agent - 支持 HR 批量筛选和 ATS 系统集成。
+用于简历解析、结构化和离线批处理入库的服务端项目。
 
-## 功能特性
+## 当前能力
 
-- 📄 支持 PDF/DOCX 简历解析
-- 🤖 本地 LLM (Qwen 14B) + 云端 API 支持
-- 🎯 JD 职位匹配评分
-- 🔍 语义搜索候选人
-- ⚡ 批量处理能力
+1. 支持 PDF/DOCX 简历文本提取。
+2. 支持通过上传文件或简历 URL 进行同步结构化。
+3. 支持基于 Celery 的离线批处理链路：
+   - `dispatch -> extract -> llm -> persist -> deadletter`
+4. 支持 MySQL 落库、Redis 队列和 Qdrant 向量库。
+5. 支持预算守卫、死信重试和批次治理表。
 
-## 快速开始
+## 快速启动
 
-### 环境要求
+### 依赖
 
-- Python 3.10+
-- NVIDIA GPU (推荐 RTX 4090 24GB)
-- Docker & Docker Compose
+1. Python 3.10+
+2. Docker / Docker Compose
+3. MySQL、Redis、Qdrant
 
-### 安装
+### 启动步骤
 
-```bash
-# 1. 克隆项目
-git clone <repo-url>
-cd resume-agent
-
-# 2. 安装依赖
-poetry install
-
-# 3. 启动依赖服务
-docker-compose up -d
-
-# 4. 初始化数据库
-python scripts/init_db.py
-
-# 5. 启动服务
-uvicorn src.api.main:app --reload --port 8000
+```powershell
+docker compose up -d
+& .\.venv\Scripts\python.exe scripts/init_db.py
+& .\.venv\Scripts\python.exe -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-### API 文档
+API 文档：
 
-启动服务后访问: http://localhost:8000/docs
+- `http://localhost:8000/docs`
 
-## 项目结构
+## 关键接口
 
+1. 上传文件结构化
+- `POST /api/v1/resumes/upload`
+2. 通过 URL 同步结构化
+- `POST /api/v1/resumes/structure-from-url`
+3. 通过员工工号同步结构化
+- `POST /api/v1/resumes/structure-from-employee`
+
+## 离线批处理
+
+1. dry-run 预览：
+
+```powershell
+& .\.venv\Scripts\python.exe scripts/run_batch_structuring.py --start-employee E0001 --end-employee E9999 --batch-size 200 --dry-run
 ```
-resume-agent/
-├── src/
-│   ├── api/           # FastAPI 应用
-│   ├── services/      # 业务逻辑
-│   ├── llm/           # LLM Provider
-│   ├── models/        # 数据模型
-│   ├── tasks/         # 异步任务
-│   └── core/          # 核心配置
-├── tests/             # 测试
-├── scripts/           # 脚本工具
-└── config/            # 配置文件
+
+2. 正式投递：
+
+```powershell
+& .\.venv\Scripts\python.exe scripts/run_batch_structuring.py --start-employee E0001 --end-employee E9999 --batch-size 200
 ```
 
-## 许可证
+3. 死信重试：
 
-MIT License
+```powershell
+& .\.venv\Scripts\python.exe scripts/retry_deadletter.py --employee-id E0007 --employee-id E0156
+```
+
+## 运维文档
+
+- `docs/runbooks/resume-batch-ops.md`
+- `docs/runbooks/resume-batch-rollout-checklist.md`

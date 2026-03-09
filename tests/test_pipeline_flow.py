@@ -8,13 +8,15 @@
 
 def test_pipeline_payload_excludes_temp_url():
     payload = build_extract_payload(
-        employee_id="E001",
+        source_type="employee",
+        source_id="E001",
         resume_created_time="2026-03-06T10:00:00",
         temp_url="https://cdn.example.com/temp.pdf",
     )
 
     assert payload == {
-        "employee_id": "E001",
+        "source_type": "employee",
+        "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
     }
     assert "temp_url" not in payload
@@ -41,7 +43,8 @@ def test_pipeline_queue_routes_cover_all_stages():
 
 def test_extract_service_request_prefers_temp_url_when_present():
     payload = build_extract_payload(
-        employee_id="E001",
+        source_type="employee",
+        source_id="E001",
         resume_created_time="2026-03-06T10:00:00",
     )
 
@@ -51,12 +54,14 @@ def test_extract_service_request_prefers_temp_url_when_present():
     ) == {
         "mode": "url",
         "resume_url": "https://cdn.example.com/temp.pdf",
-        "employee_id": "E001",
+        "source_type": "employee",
+        "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
     }
 
     assert build_extract_service_request(extract_payload=payload) == {
-        "mode": "employee",
-        "employee_id": "E001",
+        "mode": "source",
+        "source_type": "employee",
+        "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
     }

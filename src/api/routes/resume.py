@@ -28,6 +28,7 @@ from src.api.schemas.resume import (
     SearchResultItem,
     ResumeUrlStructureRequest,
     EmployeeResumeStructureRequest,
+    SourceResumeStructureRequest,
     ResumeStructureResponse,
 )
 
@@ -258,10 +259,44 @@ async def structure_resume_from_employee(
         "candidate_id": result.get("candidate_id"),
         "idempotency_key": result.get("idempotency_key"),
         "employee_id": request.employee_id,
+        "source_type": "employee",
+        "source_id": request.employee_id,
         "resume_created_time": request.resume_created_time,
         "resume_url": result.get("resume_url"),
         "structured_resume": result.get("structured_resume") or {},
     }
+
+
+@router.post("/structure-from-source", response_model=ResumeStructureResponse)
+async def structure_resume_from_source(
+    request: SourceResumeStructureRequest,
+    db: Session = Depends(get_db),
+):
+    """通过通用来源标识同步完成结构化并落库。"""
+    service = URLStructuringService(db=db)
+    result = await service.structure_from_source(
+        source_type=request.source_type,
+        source_id=request.source_id,
+        resume_created_time=request.resume_created_time,
+    )
+
+    response = {
+        "status": result.get("status"),
+        "candidate_id": result.get("candidate_id"),
+        "idempotency_key": result.get("idempotency_key"),
+        "source_type": request.source_type,
+        "source_id": request.source_id,
+        "resume_created_time": request.resume_created_time,
+        "resume_url": result.get("resume_url"),
+        "structured_resume": result.get("structured_resume") or {},
+    }
+    if request.source_type == "employee":
+        response["employee_id"] = request.source_id
+    elif request.source_type == "entrant":
+        response["entrant_id"] = request.source_id
+    elif request.source_type == "submit_candidate":
+        response["submit_candidate_id"] = request.source_id
+    return response
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)

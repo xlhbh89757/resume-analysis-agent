@@ -13,8 +13,9 @@ class FakeURLStructuringService:
     def __init__(self, db):
         self.db = db
 
-    async def extract_resume_text_from_employee(self, employee_id: str) -> str:
-        assert employee_id == "E001"
+    async def extract_resume_text_from_source(self, source_type: str, source_id: str) -> str:
+        assert source_type == "employee"
+        assert source_id == "E001"
         return "候选人简历原文"
 
     async def extract_resume_text_from_url(self, resume_url: str) -> str:
@@ -58,9 +59,10 @@ def seed_task(session):
 
     task = ResumeStructTask(
         batch_id=batch.id,
-        employee_id="E001",
+        source_type="employee",
+        source_id="E001",
         resume_created_time="2026-03-09T10:00:00",
-        idempotency_key="E001:2026-03-09T10:00:00",
+        idempotency_key="employee:E001:2026-03-09T10:00:00",
         status="queued",
     )
     session.add(task)
@@ -78,7 +80,8 @@ def test_extract_llm_persist_pipeline_marks_task_success(monkeypatch):
     monkeypatch.setattr(analysis, "LLMAnalysisService", FakeLLMAnalysisService)
 
     llm_payload = analysis.extract_resume_task.run(
-        employee_id="E001",
+        source_type="employee",
+        source_id="E001",
         resume_created_time="2026-03-09T10:00:00",
     )
     persist_payload = analysis.llm_extract_task.run(llm_payload)
@@ -103,7 +106,8 @@ def test_deadletter_task_persists_failed_payload(monkeypatch):
 
     result = analysis.deadletter_task.run(
         payload={
-            "employee_id": "E001",
+            "source_type": "employee",
+            "source_id": "E001",
             "resume_created_time": "2026-03-09T10:00:00",
             "resume_text": "候选人简历原文",
         },
@@ -115,7 +119,7 @@ def test_deadletter_task_persists_failed_payload(monkeypatch):
     task = session.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).one()
 
     assert result["error_code"] == "E_LLM"
-    assert deadletter.employee_id == "E001"
+    assert deadletter.source_id == "E001"
     assert deadletter.last_error == "llm timeout"
     assert json.loads(deadletter.payload_snapshot)["resume_text"] == "候选人简历原文"
     assert task.status == "dead"

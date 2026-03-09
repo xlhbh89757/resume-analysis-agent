@@ -1,4 +1,4 @@
-﻿"""离线简历结构化任务链辅助逻辑。"""
+"""离线简历结构化任务链辅助逻辑。"""
 
 from __future__ import annotations
 
@@ -22,17 +22,18 @@ PIPELINE_QUEUE_ROUTES = {
 
 
 def build_extract_payload(
-    employee_id: str,
+    source_type: str,
+    source_id: str,
     resume_created_time: str,
     temp_url: str | None = None,
 ) -> dict[str, Any]:
     """构造抽取阶段任务载荷。"""
-    payload = {
-        "employee_id": employee_id,
+    _ = temp_url
+    return {
+        "source_type": source_type,
+        "source_id": source_id,
         "resume_created_time": resume_created_time,
     }
-    _ = temp_url
-    return payload
 
 
 def build_extract_service_request(
@@ -44,25 +45,28 @@ def build_extract_service_request(
         return {
             "mode": "url",
             "resume_url": temp_url,
-            "employee_id": extract_payload["employee_id"],
+            "source_type": extract_payload["source_type"],
+            "source_id": extract_payload["source_id"],
             "resume_created_time": extract_payload["resume_created_time"],
         }
 
     return {
-        "mode": "employee",
-        "employee_id": extract_payload["employee_id"],
+        "mode": "source",
+        "source_type": extract_payload["source_type"],
+        "source_id": extract_payload["source_id"],
         "resume_created_time": extract_payload["resume_created_time"],
     }
 
 
 def build_dispatch_payload(batch_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    """构造批次分发摘要，供调度层记录本轮投递范围。"""
+    """构造批次分发摘要。"""
     return {
         "batch_id": batch_id,
         "total_count": len(items),
         "items": [
             build_extract_payload(
-                employee_id=item["employee_id"],
+                source_type=item["source_type"],
+                source_id=item["source_id"],
                 resume_created_time=item["resume_created_time"],
             )
             for item in items
@@ -73,7 +77,8 @@ def build_dispatch_payload(batch_id: str, items: list[dict[str, Any]]) -> dict[s
 def build_llm_payload(extract_payload: dict[str, Any], text: str = "") -> dict[str, Any]:
     """构造 LLM 抽取阶段输入。"""
     return {
-        "employee_id": extract_payload["employee_id"],
+        "source_type": extract_payload["source_type"],
+        "source_id": extract_payload["source_id"],
         "resume_created_time": extract_payload["resume_created_time"],
         "resume_text": text,
     }
@@ -87,27 +92,21 @@ def build_persist_payload(
     llm_meta = structured_resume.get("_llm_meta", {}) if structured_resume else {}
     resume_text = llm_payload.get("resume_text", "")
     fallback_tokens_in = max(len(resume_text) // 4, 1) if resume_text else None
-    fallback_tokens_out = (
-        max(len(str(structured_resume)) // 4, 1) if structured_resume else None
-    )
+    fallback_tokens_out = max(len(str(structured_resume)) // 4, 1) if structured_resume else None
     return {
-        "employee_id": llm_payload["employee_id"],
+        "source_type": llm_payload["source_type"],
+        "source_id": llm_payload["source_id"],
         "resume_created_time": llm_payload["resume_created_time"],
         "resume_text": resume_text,
         "structured_resume": structured_resume or {},
-        # 统一把成本元数据带到落库阶段，便于任务治理表记录预算消耗。
         "llm_tokens_in": llm_meta.get("tokens_in", fallback_tokens_in),
         "llm_tokens_out": llm_meta.get("tokens_out", fallback_tokens_out),
         "llm_cost": llm_meta.get("estimated_cost"),
     }
 
 
-def build_deadletter_payload(
-    payload: dict[str, Any],
-    error_code: str,
-    error_message: str,
-) -> dict[str, Any]:
-    """构造死信记录，保留失败上下文用于后续重试。"""
+def build_deadletter_payload(payload: dict[str, Any], error_code: str, error_message: str) -> dict[str, Any]:
+    """构造死信记录。"""
     deadletter_payload = dict(payload)
     deadletter_payload["error_code"] = error_code
     deadletter_payload["error_message"] = error_message

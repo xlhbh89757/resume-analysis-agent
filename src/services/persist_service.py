@@ -1,4 +1,4 @@
-﻿"""结构化简历落库服务。"""
+"""结构化简历落库服务。"""
 
 from __future__ import annotations
 
@@ -6,12 +6,19 @@ import json
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from src.models.candidate import Candidate, ProjectExperience, Skill, WorkExperience
 from src.models.resume_batch import ResumeStructDeadletter, ResumeStructTask
 from src.utils.project_experience_normalizer import to_text_list
 from src.utils.work_experience_normalizer import normalize_work_experience
+
+SOURCE_FIELD_MAPPING = {
+    "employee": "employee_id",
+    "entrant": "entrant_id",
+    "submit_candidate": "submit_candidate_id",
+}
 
 
 class PersistService:
@@ -87,12 +94,12 @@ class PersistService:
 
     def persist_structured_resume(self, payload: dict[str, Any]) -> dict[str, Any]:
         """按幂等键写入结构化结果。"""
-        employee_id = payload["employee_id"]
+        source_type = payload["source_type"]
+        source_id = payload["source_id"]
         resume_created_time = payload["resume_created_time"]
-        idempotency_key = f"{employee_id}:{resume_created_time}"
+        idempotency_key = self._build_idempotency_key(source_type, source_id, resume_created_time)
         task = self._get_task(payload.get("task_id"), idempotency_key)
 
-        # 同一幂等键已经成功时直接跳过，避免重复创建候选人记录。
         if task and task.status == "success":
             return {
                 "status": "skipped",
@@ -107,15 +114,19 @@ class PersistService:
             task.error_code = None
             task.error_message = None
 
-        candidate = Candidate(status="pending")
-        self.db.add(candidate)
-        self.db.flush()
+        structured_resume = payload.get("structured_resume") or {}
+        candidate = self._find_or_create_candidate(
+            source_type=source_type,
+            source_id=source_id,
+            structured_resume=structured_resume,
+        )
 
         try:
+            self._assign_source_identifier(candidate, source_type, source_id)
             self.apply_structured_resume(
                 candidate=candidate,
                 resume_text=payload.get("resume_text"),
-                structured_resume=payload.get("structured_resume") or {},
+                structured_resume=structured_resume,
             )
 
             if task:
@@ -149,7 +160,11 @@ class PersistService:
         """记录死信任务，保留后续重试所需上下文。"""
         task = self._get_task(
             payload.get("task_id"),
-            f"{payload['employee_id']}:{payload['resume_created_time']}",
+            self._build_idempotency_key(
+                payload["source_type"],
+                payload["source_id"],
+                payload["resume_created_time"],
+            ),
         )
         if task is None:
             raise ValueError("ResumeStructTask not found for deadletter payload")
@@ -161,7 +176,8 @@ class PersistService:
 
         deadletter = ResumeStructDeadletter(
             task_id=task.id,
-            employee_id=payload["employee_id"],
+            source_type=payload["source_type"],
+            source_id=payload["source_id"],
             resume_created_time=payload["resume_created_time"],
             last_error=error_message,
             payload_snapshot=json.dumps(payload, ensure_ascii=False),
@@ -176,6 +192,9 @@ class PersistService:
             "error_code": error_code,
         }
 
+    def _build_idempotency_key(self, source_type: str, source_id: str, resume_created_time: str) -> str:
+        return f"{source_type}:{source_id}:{resume_created_time}"
+
     def _get_task(self, task_id: int | None, idempotency_key: str) -> ResumeStructTask | None:
         if task_id is not None:
             return self.db.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).first()
@@ -184,6 +203,48 @@ class PersistService:
             .filter(ResumeStructTask.idempotency_key == idempotency_key)
             .first()
         )
+
+    def _find_or_create_candidate(
+        self,
+        source_type: str,
+        source_id: str,
+        structured_resume: dict[str, Any],
+    ) -> Candidate:
+        candidate = self._find_candidate_by_source(source_type, source_id)
+        if candidate:
+            return candidate
+
+        candidate = self._find_candidate_by_contact(
+            phone=structured_resume.get("phone"),
+            email=structured_resume.get("email"),
+        )
+        if candidate:
+            return candidate
+
+        candidate = Candidate(status="pending")
+        self.db.add(candidate)
+        self.db.flush()
+        return candidate
+
+    def _find_candidate_by_source(self, source_type: str, source_id: str) -> Candidate | None:
+        field_name = SOURCE_FIELD_MAPPING[source_type]
+        column = getattr(Candidate, field_name)
+        return self.db.query(Candidate).filter(column == source_id).first()
+
+    def _find_candidate_by_contact(self, phone: str | None, email: str | None) -> Candidate | None:
+        filters = []
+        if phone:
+            filters.append(Candidate.phone == phone)
+        if email:
+            filters.append(Candidate.email == email)
+        if not filters:
+            return None
+        return self.db.query(Candidate).filter(or_(*filters)).first()
+
+    def _assign_source_identifier(self, candidate: Candidate, source_type: str, source_id: str) -> None:
+        field_name = SOURCE_FIELD_MAPPING[source_type]
+        if getattr(candidate, field_name) != source_id:
+            setattr(candidate, field_name, source_id)
 
     def _mark_task_failed(self, task_id: int | None, error_message: str) -> None:
         if task_id is None:

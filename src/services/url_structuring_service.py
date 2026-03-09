@@ -1,4 +1,4 @@
-﻿"""基于 URL 的简历结构化服务。"""
+"""基于 URL 的简历结构化服务。"""
 
 from __future__ import annotations
 
@@ -40,46 +40,60 @@ class URLStructuringService:
         self.source_client = source_client or ResumeSourceClient()
         self.downloader = downloader or self._download_to_temp_file
 
+    async def structure_from_source(
+        self,
+        source_type: str,
+        source_id: str,
+        resume_created_time: str,
+    ) -> dict[str, Any]:
+        """按通用来源标识拉取临时 URL，并执行完整结构化流程。"""
+        temp_url_result = await self.source_client.get_temp_url(source_type, source_id)
+        return await self.structure_from_url(
+            resume_url=temp_url_result["temp_url"],
+            source_type=source_type,
+            source_id=source_id,
+            resume_created_time=resume_created_time,
+        )
+
     async def structure_from_employee(
         self,
         employee_id: str,
         resume_created_time: str,
     ) -> dict[str, Any]:
-        """按员工标识拉取临时 URL，并执行完整结构化流程。"""
-        temp_url_result = await self.source_client.get_temp_url(employee_id)
-        temp_url = temp_url_result["temp_url"]
-        return await self.structure_from_url(
-            resume_url=temp_url,
-            employee_id=employee_id,
+        """兼容旧接口，内部转换为 employee 来源。"""
+        return await self.structure_from_source(
+            source_type="employee",
+            source_id=employee_id,
             resume_created_time=resume_created_time,
         )
 
     async def structure_from_url(
         self,
         resume_url: str,
-        employee_id: str | None = None,
+        source_type: str | None = None,
+        source_id: str | None = None,
         resume_created_time: str | None = None,
     ) -> dict[str, Any]:
         """按 URL 下载简历、提取文本并同步落库。"""
         file_path = await self.downloader(resume_url)
         try:
-            # 统一把 URL 文件下载为本地临时文件，再复用现有解析器。
             resume_text = self.document_parser.parse(str(file_path))
             structured_resume = await self.llm_service.extract_resume_info(resume_text)
 
-            if employee_id and resume_created_time:
-                task = self._ensure_manual_task(employee_id, resume_created_time)
+            if source_type and source_id and resume_created_time:
+                task = self._ensure_manual_task(source_type, source_id, resume_created_time)
                 persist_result = self.persist_service.persist_structured_resume(
                     {
                         "task_id": task.id,
-                        "employee_id": employee_id,
+                        "source_type": source_type,
+                        "source_id": source_id,
                         "resume_created_time": resume_created_time,
                         "resume_text": resume_text,
                         "structured_resume": structured_resume,
                     }
                 )
             else:
-                persist_result = self._persist_without_employee(
+                persist_result = self._persist_without_source(
                     resume_text=resume_text,
                     structured_resume=structured_resume,
                 )
@@ -91,7 +105,6 @@ class URLStructuringService:
                 "structured_resume": structured_resume,
             }
         finally:
-            # 临时文件只用于本轮解析，任务结束后立即清理，避免占满磁盘。
             if file_path.exists():
                 file_path.unlink()
 
@@ -104,10 +117,14 @@ class URLStructuringService:
             if file_path.exists():
                 file_path.unlink()
 
-    async def extract_resume_text_from_employee(self, employee_id: str) -> str:
-        """按员工标识获取临时 URL 并提取文本。"""
-        temp_url_result = await self.source_client.get_temp_url(employee_id)
+    async def extract_resume_text_from_source(self, source_type: str, source_id: str) -> str:
+        """按来源标识获取临时 URL 并提取文本。"""
+        temp_url_result = await self.source_client.get_temp_url(source_type, source_id)
         return await self.extract_resume_text_from_url(temp_url_result["temp_url"])
+
+    async def extract_resume_text_from_employee(self, employee_id: str) -> str:
+        """兼容旧调用，默认走 employee 来源。"""
+        return await self.extract_resume_text_from_source("employee", employee_id)
 
     async def _download_to_temp_file(self, resume_url: str) -> Path:
         """下载 URL 文件到临时目录，供解析器读取。"""
@@ -130,7 +147,7 @@ class URLStructuringService:
             return guessed
         return ".pdf"
 
-    def _persist_without_employee(
+    def _persist_without_source(
         self,
         resume_text: str,
         structured_resume: dict[str, Any],
@@ -139,7 +156,6 @@ class URLStructuringService:
         self.db.add(candidate)
         self.db.flush()
 
-        # 调试 URL 入口没有业务幂等键，直接写候选人详情即可。
         self.persist_service.apply_structured_resume(
             candidate=candidate,
             resume_text=resume_text,
@@ -153,8 +169,13 @@ class URLStructuringService:
             "idempotency_key": None,
         }
 
-    def _ensure_manual_task(self, employee_id: str, resume_created_time: str) -> ResumeStructTask:
-        idempotency_key = f"{employee_id}:{resume_created_time}"
+    def _ensure_manual_task(
+        self,
+        source_type: str,
+        source_id: str,
+        resume_created_time: str,
+    ) -> ResumeStructTask:
+        idempotency_key = f"{source_type}:{source_id}:{resume_created_time}"
         task = (
             self.db.query(ResumeStructTask)
             .filter(ResumeStructTask.idempotency_key == idempotency_key)
@@ -180,7 +201,8 @@ class URLStructuringService:
         batch.total_count += 1
         task = ResumeStructTask(
             batch_id=batch.id,
-            employee_id=employee_id,
+            source_type=source_type,
+            source_id=source_id,
             resume_created_time=resume_created_time,
             idempotency_key=idempotency_key,
             status="queued",

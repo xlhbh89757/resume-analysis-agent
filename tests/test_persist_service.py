@@ -20,9 +20,10 @@ def create_task(session):
 
     task = ResumeStructTask(
         batch_id=batch.id,
-        employee_id="E001",
+        source_type="employee",
+        source_id="E001",
         resume_created_time="2026-03-06T10:00:00",
-        idempotency_key="E001:2026-03-06T10:00:00",
+        idempotency_key="employee:E001:2026-03-06T10:00:00",
         status="queued",
     )
     session.add(task)
@@ -34,7 +35,8 @@ def create_task(session):
 def make_payload(task_id):
     return {
         "task_id": task_id,
-        "employee_id": "E001",
+        "source_type": "employee",
+        "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
         "resume_text": "候选人简历原文",
         "structured_resume": {
@@ -94,5 +96,48 @@ def test_persist_skips_when_idempotency_key_already_success():
     assert first["candidate_id"] == candidate.id
     assert second["status"] == "skipped"
     assert session.query(Candidate).count() == 1
+    assert candidate.employee_id == "E001"
     assert candidate.work_experiences[0].achievements == '["完成多套核心模型迁移"]'
     assert task.status == "success"
+
+
+def test_persist_reuses_existing_candidate_by_submit_candidate_id():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    existing = Candidate(name="旧候选人", submit_candidate_id="S001", status="completed")
+    session.add(existing)
+    session.commit()
+
+    payload = make_payload(task.id)
+    payload["source_type"] = "submit_candidate"
+    payload["source_id"] = "S001"
+
+    result = service.persist_structured_resume(payload)
+    session.refresh(existing)
+
+    assert result["status"] == "success"
+    assert result["candidate_id"] == existing.id
+    assert session.query(Candidate).count() == 1
+    assert existing.submit_candidate_id == "S001"
+    assert existing.phone == "19523866354"
+
+
+def test_persist_reuses_existing_candidate_by_phone_and_backfills_source_id():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    existing = Candidate(name="旧候选人", phone="19523866354", status="completed")
+    session.add(existing)
+    session.commit()
+
+    payload = make_payload(task.id)
+    payload["source_type"] = "submit_candidate"
+    payload["source_id"] = "S002"
+
+    result = service.persist_structured_resume(payload)
+    session.refresh(existing)
+
+    assert result["candidate_id"] == existing.id
+    assert session.query(Candidate).count() == 1
+    assert existing.submit_candidate_id == "S002"

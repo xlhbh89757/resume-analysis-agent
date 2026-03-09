@@ -59,13 +59,13 @@ def test_get_temp_url_returns_url_and_expire_at(monkeypatch):
     )
 
     client = ResumeSourceClient()
-    result = asyncio.run(client.get_temp_url("E001"))
+    result = asyncio.run(client.get_temp_url("employee", "E001"))
 
     assert result["temp_url"] == "https://cdn.example.com/temp.pdf"
     assert result["expires_at"] == "2026-03-06T16:00:00"
 
 
-def test_list_pending_employees_returns_cursor_payload(monkeypatch):
+def test_get_temp_url_for_submit_candidate_uses_submit_candidate_endpoint(monkeypatch):
     from src.services.resume_source_client import ResumeSourceClient
     import src.services.resume_source_client as module
 
@@ -84,16 +84,52 @@ def test_list_pending_employees_returns_cursor_payload(monkeypatch):
         lambda timeout: FakeAsyncClient(
             {
                 (
-                    "https://source.example.com/api/employees/resumes/pending",
-                    (("cursor", "1001"), ("limit", 2)),
+                    "https://source.example.com/api/submit-candidates/S001/resume/temp-url",
+                    (),
+                ): {
+                    "temp_url": "https://cdn.example.com/submit.pdf",
+                }
+            }
+        ),
+    )
+
+    client = ResumeSourceClient()
+    result = asyncio.run(client.get_temp_url("submit_candidate", "S001"))
+
+    assert result["temp_url"] == "https://cdn.example.com/submit.pdf"
+
+
+def test_list_pending_resumes_returns_cursor_payload(monkeypatch):
+    from src.services.resume_source_client import ResumeSourceClient
+    import src.services.resume_source_client as module
+
+    monkeypatch.setattr(
+        module,
+        "settings",
+        SimpleNamespace(
+            resume_source_api_base_url="https://source.example.com/api",
+            resume_source_api_token="token-1",
+            resume_source_api_timeout=30,
+        ),
+    )
+    monkeypatch.setattr(
+        module.httpx,
+        "AsyncClient",
+        lambda timeout: FakeAsyncClient(
+            {
+                (
+                    "https://source.example.com/api/resumes/pending",
+                    (("cursor", "1001"), ("limit", 2), ("source_type", "submit_candidate")),
                 ): {
                     "items": [
                         {
-                            "employee_id": "E001",
+                            "source_type": "submit_candidate",
+                            "source_id": "S001",
                             "resume_created_time": "2026-03-06T10:00:00",
                         },
                         {
-                            "employee_id": "E002",
+                            "source_type": "submit_candidate",
+                            "source_id": "S002",
                             "resume_created_time": "2026-03-06T11:00:00",
                         },
                     ],
@@ -104,8 +140,14 @@ def test_list_pending_employees_returns_cursor_payload(monkeypatch):
     )
 
     client = ResumeSourceClient()
-    result = asyncio.run(client.list_pending_employees(cursor="1001", limit=2))
+    result = asyncio.run(
+        client.list_pending_resumes(
+            source_type="submit_candidate",
+            cursor="1001",
+            limit=2,
+        )
+    )
 
     assert len(result["items"]) == 2
-    assert result["items"][0]["employee_id"] == "E001"
+    assert result["items"][0]["source_id"] == "S001"
     assert result["next_cursor"] == "1003"

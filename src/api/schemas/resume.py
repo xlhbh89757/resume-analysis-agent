@@ -1,36 +1,37 @@
-"""API Pydantic Schemas - 简历相关"""
+"""简历相关 API Schema。"""
+
+from __future__ import annotations
+
 import json
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Any
 from datetime import datetime
+from typing import Any, List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class WorkExperienceSchema(BaseModel):
-    """工作经历"""
     company_name: Optional[str] = None
     position: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     duration_months: Optional[int] = None
-    responsibilities: Optional[str] = None  # 存储为字符串
-    achievements: Optional[str] = None  # 存储为字符串
-    
+    responsibilities: Optional[str] = None
+    achievements: Optional[str] = None
+
     class Config:
         from_attributes = True
 
 
 class SkillSchema(BaseModel):
-    """技能"""
     skill_name: str
     skill_category: Optional[str] = None
     proficiency_level: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
 
 
 class ProjectExperienceSchema(BaseModel):
-    """项目经验"""
     project_name: Optional[str] = None
     role: Optional[str] = None
     start_date: Optional[str] = None
@@ -39,40 +40,40 @@ class ProjectExperienceSchema(BaseModel):
     technologies: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     achievements: Optional[List[str]] = None
-    
-    @field_validator('technologies', 'responsibilities', 'achievements', mode='before')
+
+    @field_validator("technologies", "responsibilities", "achievements", mode="before")
     @classmethod
-    def parse_json_list(cls, v: Any) -> Optional[List[str]]:
-        """解析 JSON 字符串为列表"""
-        if v is None:
+    def parse_json_list(cls, value: Any) -> Optional[List[str]]:
+        if value is None:
             return None
-        if isinstance(v, str):
+        if isinstance(value, str):
             try:
-                return json.loads(v)
+                return json.loads(value)
             except json.JSONDecodeError:
                 return []
-        if isinstance(v, list):
-            return v
+        if isinstance(value, list):
+            return value
         return None
-    
+
     class Config:
         from_attributes = True
 
 
 class ResumeUploadResponse(BaseModel):
-    """简历上传响应"""
     candidate_id: int
-    status: str = Field(..., description="状态: uploaded, analyzing, completed, failed")
-    task_id: Optional[str] = Field(None, description="异步任务 ID")
+    status: str = Field(..., description="uploaded, analyzing, completed, failed")
+    task_id: Optional[str] = Field(None, description="异步任务ID")
     message: str = "简历上传成功"
 
 
 class CandidateResponse(BaseModel):
-    """候选人详情响应"""
     id: int
     name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    employee_id: Optional[str] = None
+    entrant_id: Optional[str] = None
+    submit_candidate_id: Optional[str] = None
     education_level: Optional[str] = None
     years_of_experience: Optional[int] = None
     current_position: Optional[str] = None
@@ -82,26 +83,23 @@ class CandidateResponse(BaseModel):
     work_experiences: List[WorkExperienceSchema] = []
     project_experiences: List[ProjectExperienceSchema] = []
     skills: List[SkillSchema] = []
-    
+
     class Config:
         from_attributes = True
 
 
 class CandidateListResponse(BaseModel):
-    """候选人列表响应"""
     total: int
     items: List[CandidateResponse]
 
 
 class CandidateSearchRequest(BaseModel):
-    """语义搜索请求"""
     query: str = Field(..., description="自然语言查询")
     top_k: int = Field(10, ge=1, le=100, description="返回数量")
     filters: Optional[dict] = Field(None, description="过滤条件")
 
 
 class SearchResultItem(BaseModel):
-    """搜索结果项"""
     candidate_id: int
     similarity_score: float
     name: Optional[str] = None
@@ -111,28 +109,34 @@ class SearchResultItem(BaseModel):
 
 
 class CandidateSearchResponse(BaseModel):
-    """搜索响应"""
     results: List[SearchResultItem]
     total: int
 
 
 class ResumeUrlStructureRequest(BaseModel):
-    """按 URL 触发简历结构化请求。"""
     resume_url: str
 
 
 class EmployeeResumeStructureRequest(BaseModel):
-    """按员工标识触发简历结构化请求。"""
     employee_id: str
     resume_created_time: str
 
 
+class SourceResumeStructureRequest(BaseModel):
+    source_type: Literal["employee", "submit_candidate", "entrant"]
+    source_id: str
+    resume_created_time: str
+
+
 class ResumeStructureResponse(BaseModel):
-    """同步简历结构化结果。"""
     status: str
     candidate_id: Optional[int] = None
     idempotency_key: Optional[str] = None
     employee_id: Optional[str] = None
+    entrant_id: Optional[str] = None
+    submit_candidate_id: Optional[str] = None
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
     resume_created_time: Optional[str] = None
     resume_url: Optional[str] = None
     structured_resume: dict = Field(default_factory=dict)
