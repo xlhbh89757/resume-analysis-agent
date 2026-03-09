@@ -1,6 +1,6 @@
 """Candidate 相关数据模型。"""
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -14,11 +14,10 @@ class Candidate(Base):
     __table_args__ = {"comment": "候选人主表"}
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    name = Column(String(100), nullable=True, comment="姓名")
-    email = Column(String(255), unique=True, index=True, nullable=True, comment="邮箱")
+    name = Column(String(100), nullable=True, index=True, comment="姓名")
+    email = Column(String(255), nullable=True, index=True, comment="邮箱")
     phone = Column(String(50), nullable=True, comment="手机号")
 
-    # 外部业务标识允许共存，方便同一候选人跨流程流转后继续复用。
     employee_id = Column(String(100), nullable=True, index=True, comment="在职员工工号")
     entrant_id = Column(String(100), nullable=True, index=True, comment="待入职人员标识")
     submit_candidate_id = Column(String(100), nullable=True, index=True, comment="报备候选人标识")
@@ -36,26 +35,10 @@ class Candidate(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), comment="更新时间")
     status = Column(String(20), default="pending", comment="处理状态")
 
-    work_experiences = relationship(
-        "WorkExperience",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
-    project_experiences = relationship(
-        "ProjectExperience",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
-    skills = relationship(
-        "Skill",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
-    match_results = relationship(
-        "MatchResult",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
+    work_experiences = relationship("WorkExperience", back_populates="candidate", cascade="all, delete-orphan")
+    project_experiences = relationship("ProjectExperience", back_populates="candidate", cascade="all, delete-orphan")
+    skills = relationship("Skill", back_populates="candidate", cascade="all, delete-orphan")
+    match_results = relationship("MatchResult", back_populates="candidate", cascade="all, delete-orphan")
 
 
 class WorkExperience(Base):
@@ -65,12 +48,7 @@ class WorkExperience(Base):
     __table_args__ = {"comment": "工作经历表"}
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    candidate_id = Column(
-        Integer,
-        ForeignKey("candidates.id", ondelete="CASCADE"),
-        nullable=False,
-        comment="候选人ID",
-    )
+    candidate_id = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, comment="候选人ID")
 
     company_name = Column(String(255), nullable=True, comment="公司名称")
     position = Column(String(255), nullable=True, comment="岗位名称")
@@ -90,12 +68,7 @@ class ProjectExperience(Base):
     __table_args__ = {"comment": "项目经历表"}
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    candidate_id = Column(
-        Integer,
-        ForeignKey("candidates.id", ondelete="CASCADE"),
-        nullable=False,
-        comment="候选人ID",
-    )
+    candidate_id = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, comment="候选人ID")
 
     project_name = Column(String(255), nullable=True, comment="项目名称")
     role = Column(String(100), nullable=True, comment="项目角色")
@@ -116,12 +89,7 @@ class Skill(Base):
     __table_args__ = {"comment": "技能表"}
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    candidate_id = Column(
-        Integer,
-        ForeignKey("candidates.id", ondelete="CASCADE"),
-        nullable=False,
-        comment="候选人ID",
-    )
+    candidate_id = Column(Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, comment="候选人ID")
 
     skill_name = Column(String(100), nullable=False, comment="技能名称")
     skill_category = Column(String(50), nullable=True, comment="技能类别")

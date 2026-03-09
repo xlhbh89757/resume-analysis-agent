@@ -45,6 +45,15 @@ def _create_index_if_missing(table_name: str, index_name: str, ddl: str) -> None
         conn.execute(text(ddl))
 
 
+def _drop_index_if_exists(table_name: str, index_name: str) -> None:
+    if not _has_table(table_name):
+        return
+    if index_name not in _get_indexes(table_name):
+        return
+    with engine.begin() as conn:
+        conn.execute(text(f"DROP INDEX {index_name} ON {table_name}"))
+
+
 def _rename_employee_id_to_source_id_if_needed() -> None:
     if not _has_table("resume_struct_tasks") or not _has_table("resume_struct_deadletters"):
         return
@@ -136,6 +145,13 @@ def main() -> None:
         "idx_candidates_submit_candidate_id",
         "CREATE INDEX idx_candidates_submit_candidate_id ON candidates(submit_candidate_id)",
     )
+    _create_index_if_missing(
+        "candidates",
+        "ix_candidates_name",
+        "CREATE INDEX ix_candidates_name ON candidates(name)",
+    )
+
+    _drop_index_if_exists("candidates", "ix_candidates_email")
 
     _rename_employee_id_to_source_id_if_needed()
     _add_column_if_missing(

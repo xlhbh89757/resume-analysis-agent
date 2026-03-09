@@ -141,3 +141,44 @@ def test_persist_reuses_existing_candidate_by_phone_and_backfills_source_id():
     assert result["candidate_id"] == existing.id
     assert session.query(Candidate).count() == 1
     assert existing.submit_candidate_id == "S002"
+
+
+def test_persist_prefers_name_and_phone_before_other_fallbacks():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    exact = Candidate(name="欧桂华", phone="19523866354", status="completed")
+    phone_only = Candidate(name="其他人", phone="19523866354", status="completed")
+    name_only = Candidate(name="欧桂华", phone="17700000000", status="completed")
+    session.add_all([exact, phone_only, name_only])
+    session.commit()
+
+    payload = make_payload(task.id)
+    payload["source_type"] = "submit_candidate"
+    payload["source_id"] = "S003"
+
+    result = service.persist_structured_resume(payload)
+    session.refresh(exact)
+
+    assert result["candidate_id"] == exact.id
+    assert exact.submit_candidate_id == "S003"
+
+
+def test_persist_reuses_existing_candidate_by_name_when_phone_missing():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    existing = Candidate(name="欧桂华", status="completed")
+    session.add(existing)
+    session.commit()
+
+    payload = make_payload(task.id)
+    payload["source_type"] = "submit_candidate"
+    payload["source_id"] = "S004"
+    payload["structured_resume"]["phone"] = None
+
+    result = service.persist_structured_resume(payload)
+    session.refresh(existing)
+
+    assert result["candidate_id"] == existing.id
+    assert existing.submit_candidate_id == "S004"

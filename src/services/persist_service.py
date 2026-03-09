@@ -6,7 +6,6 @@ import json
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from src.models.candidate import Candidate, ProjectExperience, Skill, WorkExperience
@@ -215,8 +214,8 @@ class PersistService:
             return candidate
 
         candidate = self._find_candidate_by_contact(
+            name=structured_resume.get("name"),
             phone=structured_resume.get("phone"),
-            email=structured_resume.get("email"),
         )
         if candidate:
             return candidate
@@ -231,15 +230,25 @@ class PersistService:
         column = getattr(Candidate, field_name)
         return self.db.query(Candidate).filter(column == source_id).first()
 
-    def _find_candidate_by_contact(self, phone: str | None, email: str | None) -> Candidate | None:
-        filters = []
+    def _find_candidate_by_contact(self, name: str | None, phone: str | None) -> Candidate | None:
+        if name and phone:
+            candidate = (
+                self.db.query(Candidate)
+                .filter(Candidate.name == name, Candidate.phone == phone)
+                .first()
+            )
+            if candidate:
+                return candidate
+
         if phone:
-            filters.append(Candidate.phone == phone)
-        if email:
-            filters.append(Candidate.email == email)
-        if not filters:
-            return None
-        return self.db.query(Candidate).filter(or_(*filters)).first()
+            candidate = self.db.query(Candidate).filter(Candidate.phone == phone).first()
+            if candidate:
+                return candidate
+
+        if name:
+            return self.db.query(Candidate).filter(Candidate.name == name).first()
+
+        return None
 
     def _assign_source_identifier(self, candidate: Candidate, source_type: str, source_id: str) -> None:
         field_name = SOURCE_FIELD_MAPPING[source_type]
