@@ -45,6 +45,7 @@ def _select_items(items: list[dict[str, Any]], start_source_id: str, end_source_
         {
             "source_type": item["source_type"],
             "source_id": item["source_id"],
+            "filekey": item.get("filekey"),
             "resume_created_time": item["resume_created_time"],
         }
         for item in items

@@ -120,12 +120,14 @@ class ResumeUrlStructureRequest(BaseModel):
 class EmployeeResumeStructureRequest(BaseModel):
     employee_id: str
     resume_created_time: str
+    filekey: Optional[str] = None
 
 
 class SourceResumeStructureRequest(BaseModel):
     source_type: Literal["employee", "submit_candidate", "entrant"]
     source_id: str
     resume_created_time: str
+    filekey: Optional[str] = None
 
 
 class ResumeStructureResponse(BaseModel):

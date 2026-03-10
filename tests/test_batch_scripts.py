@@ -37,9 +37,9 @@ def test_run_batch_script_enqueues_tasks(monkeypatch):
     dispatched = []
     source_client = FakeResumeSourceClient(
         [
-            {"source_type": "employee", "source_id": "E001", "resume_created_time": "2026-03-09T10:00:00"},
-            {"source_type": "employee", "source_id": "E002", "resume_created_time": "2026-03-09T11:00:00"},
-            {"source_type": "employee", "source_id": "E003", "resume_created_time": "2026-03-09T12:00:00"},
+            {"source_type": "employee", "source_id": "E001", "filekey": "/employee/E001.pdf", "resume_created_time": "2026-03-09T10:00:00"},
+            {"source_type": "employee", "source_id": "E002", "filekey": "/employee/E002.pdf", "resume_created_time": "2026-03-09T11:00:00"},
+            {"source_type": "employee", "source_id": "E003", "filekey": "/employee/E003.pdf", "resume_created_time": "2026-03-09T12:00:00"},
         ]
     )
 
@@ -72,15 +72,15 @@ def test_run_batch_script_enqueues_tasks(monkeypatch):
     assert len(tasks) == 2
     assert [task.source_id for task in tasks] == ["E001", "E002"]
     assert dispatched[0][1] == [
-        {"source_type": "employee", "source_id": "E001", "resume_created_time": "2026-03-09T10:00:00"},
-        {"source_type": "employee", "source_id": "E002", "resume_created_time": "2026-03-09T11:00:00"},
+        {"source_type": "employee", "source_id": "E001", "filekey": "/employee/E001.pdf", "resume_created_time": "2026-03-09T10:00:00"},
+        {"source_type": "employee", "source_id": "E002", "filekey": "/employee/E002.pdf", "resume_created_time": "2026-03-09T11:00:00"},
     ]
 
 
 def test_run_batch_script_dry_run_does_not_write(monkeypatch):
     session = make_session()
     source_client = FakeResumeSourceClient(
-        [{"source_type": "submit_candidate", "source_id": "S010", "resume_created_time": "2026-03-09T10:00:00"}]
+        [{"source_type": "submit_candidate", "source_id": "S010", "filekey": "/submit/S010.pdf", "resume_created_time": "2026-03-09T10:00:00"}]
     )
 
     monkeypatch.setattr(run_batch_structuring, "SessionLocal", lambda: session)

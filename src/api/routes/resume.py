@@ -252,6 +252,7 @@ async def structure_resume_from_employee(
     result = await service.structure_from_employee(
         employee_id=request.employee_id,
         resume_created_time=request.resume_created_time,
+        filekey=request.filekey,
     )
 
     return {
@@ -278,6 +279,7 @@ async def structure_resume_from_source(
         source_type=request.source_type,
         source_id=request.source_id,
         resume_created_time=request.resume_created_time,
+        filekey=request.filekey,
     )
 
     response = {

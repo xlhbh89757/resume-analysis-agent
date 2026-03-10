@@ -26,14 +26,18 @@ def build_extract_payload(
     source_id: str,
     resume_created_time: str,
     temp_url: str | None = None,
+    filekey: str | None = None,
 ) -> dict[str, Any]:
     """构造抽取阶段任务载荷。"""
     _ = temp_url
-    return {
+    payload = {
         "source_type": source_type,
         "source_id": source_id,
         "resume_created_time": resume_created_time,
     }
+    if filekey:
+        payload["filekey"] = filekey
+    return payload
 
 
 def build_extract_service_request(
@@ -48,6 +52,15 @@ def build_extract_service_request(
             "source_type": extract_payload["source_type"],
             "source_id": extract_payload["source_id"],
             "resume_created_time": extract_payload["resume_created_time"],
+        }
+
+    if extract_payload.get("filekey"):
+        return {
+            "mode": "filekey",
+            "source_type": extract_payload["source_type"],
+            "source_id": extract_payload["source_id"],
+            "resume_created_time": extract_payload["resume_created_time"],
+            "filekey": extract_payload["filekey"],
         }
 
     return {
@@ -68,6 +81,7 @@ def build_dispatch_payload(batch_id: str, items: list[dict[str, Any]]) -> dict[s
                 source_type=item["source_type"],
                 source_id=item["source_id"],
                 resume_created_time=item["resume_created_time"],
+                filekey=item.get("filekey"),
             )
             for item in items
         ],
@@ -76,12 +90,15 @@ def build_dispatch_payload(batch_id: str, items: list[dict[str, Any]]) -> dict[s
 
 def build_llm_payload(extract_payload: dict[str, Any], text: str = "") -> dict[str, Any]:
     """构造 LLM 抽取阶段输入。"""
-    return {
+    payload = {
         "source_type": extract_payload["source_type"],
         "source_id": extract_payload["source_id"],
         "resume_created_time": extract_payload["resume_created_time"],
         "resume_text": text,
     }
+    if extract_payload.get("filekey"):
+        payload["filekey"] = extract_payload["filekey"]
+    return payload
 
 
 def build_persist_payload(
@@ -93,7 +110,7 @@ def build_persist_payload(
     resume_text = llm_payload.get("resume_text", "")
     fallback_tokens_in = max(len(resume_text) // 4, 1) if resume_text else None
     fallback_tokens_out = max(len(str(structured_resume)) // 4, 1) if structured_resume else None
-    return {
+    payload = {
         "source_type": llm_payload["source_type"],
         "source_id": llm_payload["source_id"],
         "resume_created_time": llm_payload["resume_created_time"],
@@ -103,6 +120,9 @@ def build_persist_payload(
         "llm_tokens_out": llm_meta.get("tokens_out", fallback_tokens_out),
         "llm_cost": llm_meta.get("estimated_cost"),
     }
+    if llm_payload.get("filekey"):
+        payload["filekey"] = llm_payload["filekey"]
+    return payload
 
 
 def build_deadletter_payload(payload: dict[str, Any], error_code: str, error_message: str) -> dict[str, Any]:

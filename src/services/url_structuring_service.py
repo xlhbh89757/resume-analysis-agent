@@ -22,7 +22,7 @@ MANUAL_BATCH_ID = "manual-sync-api"
 
 
 class URLStructuringService:
-    """统一封装 URL 下载、解析、抽取和落库流程。"""
+    """统一封装下载、解析、抽取和落库流程。"""
 
     def __init__(
         self,
@@ -45,11 +45,16 @@ class URLStructuringService:
         source_type: str,
         source_id: str,
         resume_created_time: str,
+        filekey: str | None = None,
     ) -> dict[str, Any]:
-        """按通用来源标识拉取临时 URL，并执行完整结构化流程。"""
-        temp_url_result = await self.source_client.get_temp_url(source_type, source_id)
+        """按来源标识执行完整结构化流程。"""
+        resume_url = await self.resolve_resume_url(
+            source_type=source_type,
+            source_id=source_id,
+            filekey=filekey,
+        )
         return await self.structure_from_url(
-            resume_url=temp_url_result["temp_url"],
+            resume_url=resume_url,
             source_type=source_type,
             source_id=source_id,
             resume_created_time=resume_created_time,
@@ -59,12 +64,14 @@ class URLStructuringService:
         self,
         employee_id: str,
         resume_created_time: str,
+        filekey: str | None = None,
     ) -> dict[str, Any]:
         """兼容旧接口，内部转换为 employee 来源。"""
         return await self.structure_from_source(
             source_type="employee",
             source_id=employee_id,
             resume_created_time=resume_created_time,
+            filekey=filekey,
         )
 
     async def structure_from_url(
@@ -109,7 +116,7 @@ class URLStructuringService:
                 file_path.unlink()
 
     async def extract_resume_text_from_url(self, resume_url: str) -> str:
-        """仅执行 URL 下载与文本提取，供 Celery 抽取阶段复用。"""
+        """仅执行 URL 下载与文本提取。"""
         file_path = await self.downloader(resume_url)
         try:
             return self.document_parser.parse(str(file_path))
@@ -117,14 +124,36 @@ class URLStructuringService:
             if file_path.exists():
                 file_path.unlink()
 
-    async def extract_resume_text_from_source(self, source_type: str, source_id: str) -> str:
-        """按来源标识获取临时 URL 并提取文本。"""
-        temp_url_result = await self.source_client.get_temp_url(source_type, source_id)
-        return await self.extract_resume_text_from_url(temp_url_result["temp_url"])
+    async def resolve_resume_url(
+        self,
+        source_type: str,
+        source_id: str,
+        filekey: str | None = None,
+    ) -> str:
+        """优先使用 filekey 本地签名，否则回退到旧的临时 URL 接口。"""
+        if filekey:
+            return self.source_client.build_temp_url_from_filekey(filekey)["temp_url"]
 
-    async def extract_resume_text_from_employee(self, employee_id: str) -> str:
-        """兼容旧调用，默认走 employee 来源。"""
-        return await self.extract_resume_text_from_source("employee", employee_id)
+        temp_url_result = await self.source_client.get_temp_url(source_type, source_id)
+        return temp_url_result["temp_url"]
+
+    async def extract_resume_text_from_source(
+        self,
+        source_type: str,
+        source_id: str,
+        filekey: str | None = None,
+    ) -> str:
+        """按来源标识获取临时 URL 并提取文本。"""
+        resume_url = await self.resolve_resume_url(
+            source_type=source_type,
+            source_id=source_id,
+            filekey=filekey,
+        )
+        return await self.extract_resume_text_from_url(resume_url)
+
+    async def extract_resume_text_from_employee(self, employee_id: str, filekey: str | None = None) -> str:
+        """兼容旧调用，默认使用 employee 来源。"""
+        return await self.extract_resume_text_from_source("employee", employee_id, filekey=filekey)
 
     async def _download_to_temp_file(self, resume_url: str) -> Path:
         """下载 URL 文件到临时目录，供解析器读取。"""

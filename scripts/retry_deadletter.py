@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,19 +25,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _enqueue_extract(source_type: str, source_id: str, resume_created_time: str) -> None:
+def _enqueue_extract(source_type: str, source_id: str, resume_created_time: str, filekey: str | None = None) -> None:
+    payload = {
+        "source_type": source_type,
+        "source_id": source_id,
+        "resume_created_time": resume_created_time,
+    }
+    if filekey:
+        payload["filekey"] = filekey
+
     if hasattr(extract_resume_task, "delay"):
-        extract_resume_task.delay(
-            source_type=source_type,
-            source_id=source_id,
-            resume_created_time=resume_created_time,
-        )
+        extract_resume_task.delay(**payload)
         return
-    extract_resume_task.run(
-        source_type=source_type,
-        source_id=source_id,
-        resume_created_time=resume_created_time,
-    )
+    extract_resume_task.run(**payload)
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
@@ -54,17 +55,19 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
         rows = query.all()
         requeued_count = 0
-        for _, task in rows:
+        for deadletter, task in rows:
             task.status = "queued"
             task.attempt_count = (task.attempt_count or 0) + 1
             task.error_code = None
             task.error_message = None
             task.started_at = None
             task.finished_at = None
+            payload_snapshot = json.loads(deadletter.payload_snapshot or "{}")
             _enqueue_extract(
                 source_type=task.source_type,
                 source_id=task.source_id,
                 resume_created_time=task.resume_created_time,
+                filekey=payload_snapshot.get("filekey"),
             )
             requeued_count += 1
 

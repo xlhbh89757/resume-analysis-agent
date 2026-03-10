@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     resume_source_api_token: Optional[str] = None
     resume_source_api_timeout: int = 30
 
+    # OBS
+    obs_access_key: Optional[str] = None
+    obs_secret_key: Optional[str] = None
+    obs_bucket: Optional[str] = None
+    obs_host: Optional[str] = None
+    obs_url_expire_seconds: int = 900
+
     @field_validator("debug", mode="before")
     @classmethod
     def normalize_debug(cls, value: object) -> object:

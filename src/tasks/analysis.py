@@ -1,5 +1,7 @@
 """Celery 异步任务入口。"""
 
+from __future__ import annotations
+
 import asyncio
 from types import SimpleNamespace
 
@@ -9,7 +11,7 @@ try:
     from celery import Celery
 except ModuleNotFoundError:
     class _LocalTask:
-        def __init__(self, func, bind=False):
+        def __init__(self, func, bind: bool = False):
             self.func = func
             self.bind = bind
             self.request = SimpleNamespace(retries=0)
@@ -89,6 +91,25 @@ def dispatch_batch_task(self, batch_id: str, items: list[dict]):
     return build_dispatch_payload(batch_id=batch_id, items=items)
 
 
+def _refresh_resume_url(
+    service: URLStructuringService,
+    service_request: dict[str, str],
+) -> str:
+    """下载 403 时刷新简历访问链接。"""
+    if service_request["mode"] == "filekey":
+        return service.source_client.build_temp_url_from_filekey(
+            service_request["filekey"]
+        )["temp_url"]
+
+    refreshed = asyncio.run(
+        service.source_client.get_temp_url(
+            service_request["source_type"],
+            service_request["source_id"],
+        )
+    )
+    return refreshed["temp_url"]
+
+
 @celery_app.task(name=PIPELINE_TASK_NAMES["extract"], bind=True, max_retries=3)
 def extract_resume_task(
     self,
@@ -96,6 +117,7 @@ def extract_resume_task(
     source_id: str,
     resume_created_time: str,
     temp_url: str | None = None,
+    filekey: str | None = None,
 ):
     """抽取阶段任务入口。"""
     extract_payload = build_extract_payload(
@@ -103,6 +125,7 @@ def extract_resume_task(
         source_id=source_id,
         resume_created_time=resume_created_time,
         temp_url=temp_url,
+        filekey=filekey,
     )
     service_request = build_extract_service_request(
         extract_payload=extract_payload,
@@ -113,27 +136,11 @@ def extract_resume_task(
     try:
         service = URLStructuringService(db=db)
         if service_request["mode"] == "url":
-            try:
-                resume_text = asyncio.run(
-                    service.extract_resume_text_from_url(service_request["resume_url"])
-                )
-            except httpx.HTTPStatusError as exc:
-                if exc.response is None or exc.response.status_code != 403:
-                    raise
-                refreshed = asyncio.run(
-                    service.source_client.get_temp_url(
-                        service_request["source_type"],
-                        service_request["source_id"],
-                    )
-                )
-                try:
-                    resume_text = asyncio.run(
-                        service.extract_resume_text_from_url(refreshed["temp_url"])
-                    )
-                except httpx.HTTPStatusError as retry_exc:
-                    if retry_exc.response is not None and retry_exc.response.status_code == 403:
-                        raise RuntimeError("E_DOWNLOAD: temp url expired after refresh") from retry_exc
-                    raise
+            resume_url = service_request["resume_url"]
+        elif service_request["mode"] == "filekey":
+            resume_url = service.source_client.build_temp_url_from_filekey(
+                service_request["filekey"]
+            )["temp_url"]
         else:
             resume_text = asyncio.run(
                 service.extract_resume_text_from_source(
@@ -141,6 +148,20 @@ def extract_resume_task(
                     service_request["source_id"],
                 )
             )
+            return build_llm_payload(extract_payload=extract_payload, text=resume_text)
+
+        try:
+            resume_text = asyncio.run(service.extract_resume_text_from_url(resume_url))
+        except httpx.HTTPStatusError as exc:
+            if exc.response is None or exc.response.status_code != 403:
+                raise
+            refreshed_url = _refresh_resume_url(service, service_request)
+            try:
+                resume_text = asyncio.run(service.extract_resume_text_from_url(refreshed_url))
+            except httpx.HTTPStatusError as retry_exc:
+                if retry_exc.response is not None and retry_exc.response.status_code == 403:
+                    raise RuntimeError("E_DOWNLOAD: temp url expired after refresh") from retry_exc
+                raise
     finally:
         db.close()
 

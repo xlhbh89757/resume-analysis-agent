@@ -12,12 +12,14 @@ def test_pipeline_payload_excludes_temp_url():
         source_id="E001",
         resume_created_time="2026-03-06T10:00:00",
         temp_url="https://cdn.example.com/temp.pdf",
+        filekey="/employee/2026/03/E001.pdf",
     )
 
     assert payload == {
         "source_type": "employee",
         "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
+        "filekey": "/employee/2026/03/E001.pdf",
     }
     assert "temp_url" not in payload
 
@@ -46,6 +48,7 @@ def test_extract_service_request_prefers_temp_url_when_present():
         source_type="employee",
         source_id="E001",
         resume_created_time="2026-03-06T10:00:00",
+        filekey="/employee/2026/03/E001.pdf",
     )
 
     assert build_extract_service_request(
@@ -58,6 +61,22 @@ def test_extract_service_request_prefers_temp_url_when_present():
         "source_id": "E001",
         "resume_created_time": "2026-03-06T10:00:00",
     }
+
+    assert build_extract_service_request(extract_payload=payload) == {
+        "mode": "filekey",
+        "source_type": "employee",
+        "source_id": "E001",
+        "resume_created_time": "2026-03-06T10:00:00",
+        "filekey": "/employee/2026/03/E001.pdf",
+    }
+
+
+def test_extract_service_request_uses_source_mode_when_only_source_available():
+    payload = build_extract_payload(
+        source_type="employee",
+        source_id="E001",
+        resume_created_time="2026-03-06T10:00:00",
+    )
 
     assert build_extract_service_request(extract_payload=payload) == {
         "mode": "source",

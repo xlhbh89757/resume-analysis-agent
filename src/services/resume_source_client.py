@@ -1,4 +1,4 @@
-"""来源系统简历接口适配器。"""
+"""来源系统简历清单适配器。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from src.core.config import settings
+from src.obs.OBSSigner import OBSSigner
 
 SOURCE_ENDPOINT_SEGMENTS = {
     "employee": "employees",
@@ -16,7 +17,7 @@ SOURCE_ENDPOINT_SEGMENTS = {
 
 
 class ResumeSourceClient:
-    """负责从来源系统获取临时简历链接和待处理清单。"""
+    """负责获取待处理简历清单，并按 filekey 生成临时访问链接。"""
 
     def __init__(
         self,
@@ -27,6 +28,7 @@ class ResumeSourceClient:
         self.base_url = (base_url or getattr(settings, "resume_source_api_base_url", "")).rstrip("/")
         self.api_token = api_token or getattr(settings, "resume_source_api_token", "")
         self.timeout = timeout or getattr(settings, "resume_source_api_timeout", 30)
+        self._signer: OBSSigner | None = None
 
     def _headers(self) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -40,12 +42,52 @@ class ResumeSourceClient:
         except KeyError as exc:
             raise ValueError(f"Unsupported source_type: {source_type}") from exc
 
+    def _get_signer(self) -> OBSSigner:
+        if self._signer is not None:
+            return self._signer
+
+        if not all(
+            [
+                getattr(settings, "obs_access_key", None),
+                getattr(settings, "obs_secret_key", None),
+                getattr(settings, "obs_bucket", None),
+                getattr(settings, "obs_host", None),
+            ]
+        ):
+            raise ValueError("OBS signer is not configured")
+
+        self._signer = OBSSigner(
+            access_key=settings.obs_access_key,
+            secret_key=settings.obs_secret_key,
+            bucket=settings.obs_bucket,
+            host=settings.obs_host,
+        )
+        return self._signer
+
+    def build_temp_url_from_filekey(
+        self,
+        filekey: str,
+        expire_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """基于 filekey 在本地生成临时访问链接。"""
+        effective_expire_seconds = expire_seconds or getattr(settings, "obs_url_expire_seconds", 900)
+        signer = self._get_signer()
+        temp_url = signer.generate_presigned_url(
+            object_key=filekey,
+            expire_seconds=effective_expire_seconds,
+        )
+        return {
+            "temp_url": temp_url,
+            "expires_in": effective_expire_seconds,
+            "filekey": filekey,
+        }
+
     async def get_temp_url(
         self,
         source_type_or_id: str,
         source_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """获取某个来源对象对应的临时简历 URL。"""
+        """兼容旧链路，按来源对象从外部接口获取临时 URL。"""
         if source_id is None:
             source_type = "employee"
             source_id = source_type_or_id
@@ -65,7 +107,7 @@ class ResumeSourceClient:
         cursor: Optional[str] = None,
         limit: int = 100,
     ) -> Dict[str, Any]:
-        """按来源类型分页拉取待处理简历清单。"""
+        """分页拉取待处理简历清单，清单项需包含 filekey。"""
         self._resolve_source_path(source_type)
         url = f"{self.base_url}/resumes/pending"
         params = {"source_type": source_type, "limit": limit}

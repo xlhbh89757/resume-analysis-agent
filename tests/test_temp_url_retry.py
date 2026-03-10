@@ -11,6 +11,7 @@ class RefreshOnceService:
         self.db = db
         self.calls = []
         self.source_client = self
+        self._sign_count = 0
 
     async def get_temp_url(self, source_type: str, source_id: str | None = None):
         if source_id is None:
@@ -18,6 +19,12 @@ class RefreshOnceService:
             source_type = "employee"
         self.calls.append(("refresh", source_type, source_id))
         return {"temp_url": "https://cdn.example.com/new.pdf"}
+
+    def build_temp_url_from_filekey(self, filekey: str, expire_seconds: int | None = None):
+        self.calls.append(("sign", filekey, expire_seconds))
+        self._sign_count += 1
+        suffix = "old.pdf" if self._sign_count == 1 else "new.pdf"
+        return {"temp_url": f"https://cdn.example.com/{suffix}", "filekey": filekey}
 
     async def extract_resume_text_from_url(self, resume_url: str) -> str:
         self.calls.append(("extract", resume_url))
@@ -49,13 +56,14 @@ def test_extract_refreshes_temp_url_on_403(monkeypatch):
         source_type="submit_candidate",
         source_id="S001",
         resume_created_time="2026-03-09T10:00:00",
-        temp_url="https://cdn.example.com/old.pdf",
+        filekey="/submit/S001.pdf",
     )
 
     assert result["resume_text"] == "候选人简历原文"
     assert service.calls == [
+        ("sign", "/submit/S001.pdf", None),
         ("extract", "https://cdn.example.com/old.pdf"),
-        ("refresh", "submit_candidate", "S001"),
+        ("sign", "/submit/S001.pdf", None),
         ("extract", "https://cdn.example.com/new.pdf"),
     ]
 
@@ -71,5 +79,5 @@ def test_extract_raises_e_download_when_refresh_still_fails(monkeypatch):
             source_type="submit_candidate",
             source_id="S001",
             resume_created_time="2026-03-09T10:00:00",
-            temp_url="https://cdn.example.com/old.pdf",
+            filekey="/submit/S001.pdf",
         )

@@ -17,7 +17,7 @@ class FakeUrlStructuringService:
             "structured_resume": {"name": "欧桂华"},
         }
 
-    async def structure_from_employee(self, employee_id: str, resume_created_time: str):
+    async def structure_from_employee(self, employee_id: str, resume_created_time: str, filekey: str | None = None):
         return {
             "status": "success",
             "candidate_id": 202,
@@ -26,7 +26,7 @@ class FakeUrlStructuringService:
             "structured_resume": {"name": "欧桂华"},
         }
 
-    async def structure_from_source(self, source_type: str, source_id: str, resume_created_time: str):
+    async def structure_from_source(self, source_type: str, source_id: str, resume_created_time: str, filekey: str | None = None):
         return {
             "status": "success",
             "candidate_id": 303,

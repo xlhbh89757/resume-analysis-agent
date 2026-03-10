@@ -64,6 +64,7 @@ class FakeLLMService:
 class FakeSourceClient:
     def __init__(self):
         self.requests = []
+        self.filekey_requests = []
 
     async def get_temp_url(self, source_type: str, source_id: str | None = None):
         if source_id is None:
@@ -73,6 +74,14 @@ class FakeSourceClient:
         return {
             "temp_url": "https://cdn.example.com/resume.pdf",
             "expires_at": "2026-03-09T12:00:00",
+        }
+
+    def build_temp_url_from_filekey(self, filekey: str, expire_seconds: int | None = None):
+        self.filekey_requests.append((filekey, expire_seconds))
+        return {
+            "temp_url": "https://obs.example.com/presigned.pdf",
+            "expires_in": expire_seconds or 900,
+            "filekey": filekey,
         }
 
 
@@ -180,3 +189,32 @@ def test_structure_from_source_persists_submit_candidate_identifier():
     assert result["status"] == "success"
     assert candidate.submit_candidate_id == "S001"
     assert source_client.requests == [("submit_candidate", "S001")]
+
+
+def test_structure_from_source_prefers_filekey_and_skips_temp_url_lookup():
+    session = make_session()
+    downloader = FakeDownloader()
+    parser = FakeParser()
+    source_client = FakeSourceClient()
+    service = URLStructuringService(
+        db=session,
+        document_parser=parser,
+        llm_service=FakeLLMService(),
+        persist_service=PersistService(session),
+        source_client=source_client,
+        downloader=downloader,
+    )
+
+    result = asyncio.run(
+        service.structure_from_source(
+            source_type="employee",
+            source_id="E001",
+            resume_created_time="2026-03-09T10:00:00",
+            filekey="/employee/2026/03/E001.pdf",
+        )
+    )
+
+    assert result["status"] == "success"
+    assert source_client.filekey_requests == [("/employee/2026/03/E001.pdf", None)]
+    assert source_client.requests == []
+    assert downloader.urls == ["https://obs.example.com/presigned.pdf"]
