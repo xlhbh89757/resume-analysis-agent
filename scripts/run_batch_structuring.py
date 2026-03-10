@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
                     batch_id=batch.id,
                     source_type=item["source_type"],
                     source_id=item["source_id"],
+                    filekey=item.get("filekey"),
                     resume_created_time=item["resume_created_time"],
                     idempotency_key=idempotency_key,
                     status="queued",

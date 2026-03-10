@@ -57,6 +57,7 @@ def test_extract_refreshes_temp_url_on_403(monkeypatch):
         source_id="S001",
         resume_created_time="2026-03-09T10:00:00",
         filekey="/submit/S001.pdf",
+        enqueue=False,
     )
 
     assert result["resume_text"] == "候选人简历原文"
@@ -71,8 +72,14 @@ def test_extract_refreshes_temp_url_on_403(monkeypatch):
 
 def test_extract_raises_e_download_when_refresh_still_fails(monkeypatch):
     service = RefreshStillFailService(None)
+    deadletters = []
     monkeypatch.setattr(analysis, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(analysis, "URLStructuringService", lambda db: service)
+    monkeypatch.setattr(
+        analysis,
+        "deadletter_task",
+        SimpleNamespace(run=lambda **kwargs: deadletters.append(kwargs)),
+    )
 
     with pytest.raises(RuntimeError, match="E_DOWNLOAD"):
         analysis.extract_resume_task.run(
@@ -80,4 +87,18 @@ def test_extract_raises_e_download_when_refresh_still_fails(monkeypatch):
             source_id="S001",
             resume_created_time="2026-03-09T10:00:00",
             filekey="/submit/S001.pdf",
+            enqueue=False,
         )
+
+    assert deadletters == [
+        {
+            "payload": {
+                "source_type": "submit_candidate",
+                "source_id": "S001",
+                "resume_created_time": "2026-03-09T10:00:00",
+                "filekey": "/submit/S001.pdf",
+            },
+            "error_code": "E_DOWNLOAD",
+            "error_message": "E_DOWNLOAD: temp url expired after refresh",
+        }
+    ]

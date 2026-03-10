@@ -80,6 +80,7 @@ class URLStructuringService:
         source_type: str | None = None,
         source_id: str | None = None,
         resume_created_time: str | None = None,
+        filekey: str | None = None,
     ) -> dict[str, Any]:
         """按 URL 下载简历、提取文本并同步落库。"""
         file_path = await self.downloader(resume_url)
@@ -88,12 +89,13 @@ class URLStructuringService:
             structured_resume = await self.llm_service.extract_resume_info(resume_text)
 
             if source_type and source_id and resume_created_time:
-                task = self._ensure_manual_task(source_type, source_id, resume_created_time)
+                task = self._ensure_manual_task(source_type, source_id, resume_created_time, filekey=filekey)
                 persist_result = self.persist_service.persist_structured_resume(
                     {
                         "task_id": task.id,
                         "source_type": source_type,
                         "source_id": source_id,
+                        "filekey": filekey,
                         "resume_created_time": resume_created_time,
                         "resume_text": resume_text,
                         "structured_resume": structured_resume,
@@ -203,6 +205,7 @@ class URLStructuringService:
         source_type: str,
         source_id: str,
         resume_created_time: str,
+        filekey: str | None = None,
     ) -> ResumeStructTask:
         idempotency_key = f"{source_type}:{source_id}:{resume_created_time}"
         task = (
@@ -232,6 +235,7 @@ class URLStructuringService:
             batch_id=batch.id,
             source_type=source_type,
             source_id=source_id,
+            filekey=filekey,
             resume_created_time=resume_created_time,
             idempotency_key=idempotency_key,
             status="queued",

@@ -112,3 +112,38 @@ def test_candidate_supports_multiple_source_identifiers():
     assert candidate.employee_id == "E001"
     assert candidate.entrant_id == "N001"
     assert candidate.submit_candidate_id == "S001"
+
+
+def test_resume_struct_tables_store_filekey_for_retry():
+    task_columns = ResumeStructTask.__table__.columns.keys()
+    deadletter_columns = ResumeStructDeadletter.__table__.columns.keys()
+
+    assert "filekey" in task_columns
+    assert "filekey" in deadletter_columns
+
+
+def test_candidate_email_is_not_indexed_but_name_is_indexed():
+    indexed_columns = {
+        column.name
+        for index in Candidate.__table__.indexes
+        for column in index.columns
+    }
+
+    assert "name" in indexed_columns
+    assert "email" not in indexed_columns
+
+
+def test_source_type_is_indexed_for_task_tables():
+    task_indexed_columns = {
+        column.name
+        for index in ResumeStructTask.__table__.indexes
+        for column in index.columns
+    }
+    deadletter_indexed_columns = {
+        column.name
+        for index in ResumeStructDeadletter.__table__.indexes
+        for column in index.columns
+    }
+
+    assert "source_type" in task_indexed_columns
+    assert "source_type" in deadletter_indexed_columns

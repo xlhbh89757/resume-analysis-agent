@@ -1,4 +1,4 @@
-"""为 candidates 和批处理治理表补充多来源标识字段。"""
+﻿"""为 candidates 和批处理治理表补齐多来源与 filekey 字段。"""
 
 from __future__ import annotations
 
@@ -114,6 +114,19 @@ def _backfill_legacy_idempotency_keys() -> None:
         )
 
 
+def _add_resume_filekey_columns() -> None:
+    _add_column_if_missing(
+        "resume_struct_tasks",
+        "filekey",
+        "filekey VARCHAR(512) NULL COMMENT '简历文件filekey'",
+    )
+    _add_column_if_missing(
+        "resume_struct_deadletters",
+        "filekey",
+        "filekey VARCHAR(512) NULL COMMENT '简历文件filekey'",
+    )
+
+
 def main() -> None:
     _add_column_if_missing(
         "candidates",
@@ -150,7 +163,6 @@ def main() -> None:
         "ix_candidates_name",
         "CREATE INDEX ix_candidates_name ON candidates(name)",
     )
-
     _drop_index_if_exists("candidates", "ix_candidates_email")
 
     _rename_employee_id_to_source_id_if_needed()
@@ -164,10 +176,21 @@ def main() -> None:
         "source_type",
         "source_type VARCHAR(50) NOT NULL DEFAULT 'employee' COMMENT '来源类型'",
     )
+    _create_index_if_missing(
+        "resume_struct_tasks",
+        "ix_resume_struct_tasks_source_type",
+        "CREATE INDEX ix_resume_struct_tasks_source_type ON resume_struct_tasks(source_type)",
+    )
+    _create_index_if_missing(
+        "resume_struct_deadletters",
+        "ix_resume_struct_deadletters_source_type",
+        "CREATE INDEX ix_resume_struct_deadletters_source_type ON resume_struct_deadletters(source_type)",
+    )
+    _add_resume_filekey_columns()
     _backfill_source_type_defaults()
     _backfill_legacy_idempotency_keys()
 
-    print("Candidate source identifiers migration completed.")
+    print("Candidate and batch schema migration completed.")
 
 
 if __name__ == "__main__":

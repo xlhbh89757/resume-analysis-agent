@@ -71,6 +71,7 @@ def test_run_batch_script_enqueues_tasks(monkeypatch):
     assert len(dispatched) == 1
     assert len(tasks) == 2
     assert [task.source_id for task in tasks] == ["E001", "E002"]
+    assert [task.filekey for task in tasks] == ["/employee/E001.pdf", "/employee/E002.pdf"]
     assert dispatched[0][1] == [
         {"source_type": "employee", "source_id": "E001", "filekey": "/employee/E001.pdf", "resume_created_time": "2026-03-09T10:00:00"},
         {"source_type": "employee", "source_id": "E002", "filekey": "/employee/E002.pdf", "resume_created_time": "2026-03-09T11:00:00"},

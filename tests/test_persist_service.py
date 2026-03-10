@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.core.database import Base
 from src.models.candidate import Candidate
-from src.models.resume_batch import ResumeStructBatch, ResumeStructTask
+from src.models.resume_batch import ResumeStructBatch, ResumeStructDeadletter, ResumeStructTask
 from src.services.persist_service import PersistService
 
 
@@ -37,6 +37,7 @@ def make_payload(task_id):
         "task_id": task_id,
         "source_type": "employee",
         "source_id": "E001",
+        "filekey": "/employee/2026/03/E001.pdf",
         "resume_created_time": "2026-03-06T10:00:00",
         "resume_text": "候选人简历原文",
         "structured_resume": {
@@ -182,3 +183,21 @@ def test_persist_reuses_existing_candidate_by_name_when_phone_missing():
 
     assert result["candidate_id"] == existing.id
     assert existing.submit_candidate_id == "S004"
+
+
+def test_create_deadletter_persists_filekey():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    payload = make_payload(task.id)
+
+    result = service.create_deadletter(
+        payload=payload,
+        error_code="E_LLM",
+        error_message="llm failed",
+    )
+
+    deadletter = session.query(ResumeStructDeadletter).one()
+
+    assert result["status"] == "dead"
+    assert deadletter.filekey == "/employee/2026/03/E001.pdf"

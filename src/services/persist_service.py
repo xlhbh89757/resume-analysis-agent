@@ -177,6 +177,7 @@ class PersistService:
             task_id=task.id,
             source_type=payload["source_type"],
             source_id=payload["source_id"],
+            filekey=payload.get("filekey"),
             resume_created_time=payload["resume_created_time"],
             last_error=error_message,
             payload_snapshot=json.dumps(payload, ensure_ascii=False),

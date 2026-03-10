@@ -1,5 +1,7 @@
 ﻿import json
 
+import httpx
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -13,13 +15,40 @@ class FakeURLStructuringService:
     def __init__(self, db):
         self.db = db
 
-    async def extract_resume_text_from_source(self, source_type: str, source_id: str) -> str:
+    async def extract_resume_text_from_source(self, source_type: str, source_id: str, filekey: str | None = None) -> str:
         assert source_type == "employee"
         assert source_id == "E001"
+        _ = filekey
         return "候选人简历原文"
 
     async def extract_resume_text_from_url(self, resume_url: str) -> str:
         return "候选人简历原文"
+
+
+class Download404URLStructuringService:
+    def __init__(self, db):
+        self.db = db
+        self.source_client = self
+
+    def build_temp_url_from_filekey(self, filekey: str, expire_seconds: int | None = None):
+        return {"temp_url": f"https://cdn.example.com{filekey}"}
+
+    async def extract_resume_text_from_url(self, resume_url: str) -> str:
+        request = httpx.Request("GET", resume_url)
+        response = httpx.Response(404, request=request)
+        raise httpx.HTTPStatusError("not found", request=request, response=response)
+
+
+class ParseFailURLStructuringService:
+    def __init__(self, db):
+        self.db = db
+        self.source_client = self
+
+    def build_temp_url_from_filekey(self, filekey: str, expire_seconds: int | None = None):
+        return {"temp_url": f"https://cdn.example.com{filekey}"}
+
+    async def extract_resume_text_from_url(self, resume_url: str) -> str:
+        raise ValueError("Failed to extract readable text from PDF")
 
 
 class FakeLLMAnalysisService:
@@ -44,12 +73,10 @@ class FakeLLMAnalysisService:
         }
 
 
-
 def make_session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine)()
-
 
 
 def seed_task(session):
@@ -70,6 +97,24 @@ def seed_task(session):
     return task.id
 
 
+def seed_task_with_filekey(session, source_id: str, filekey: str):
+    batch = ResumeStructBatch(batch_id=f"batch-{source_id}", total_count=1, status="running")
+    session.add(batch)
+    session.commit()
+
+    task = ResumeStructTask(
+        batch_id=batch.id,
+        source_type="employee",
+        source_id=source_id,
+        filekey=filekey,
+        resume_created_time="2026-03-09T10:00:00",
+        idempotency_key=f"employee:{source_id}:2026-03-09T10:00:00",
+        status="queued",
+    )
+    session.add(task)
+    session.commit()
+    return task.id
+
 
 def test_extract_llm_persist_pipeline_marks_task_success(monkeypatch):
     session = make_session()
@@ -83,8 +128,9 @@ def test_extract_llm_persist_pipeline_marks_task_success(monkeypatch):
         source_type="employee",
         source_id="E001",
         resume_created_time="2026-03-09T10:00:00",
+        enqueue=False,
     )
-    persist_payload = analysis.llm_extract_task.run(llm_payload)
+    persist_payload = analysis.llm_extract_task.run(llm_payload, enqueue=False)
     persist_result = analysis.persist_result_task.run(persist_payload)
 
     candidate = session.query(Candidate).one()
@@ -96,7 +142,6 @@ def test_extract_llm_persist_pipeline_marks_task_success(monkeypatch):
     assert task.llm_cost == "0.0123"
     assert task.llm_tokens_in is not None
     assert task.llm_tokens_out is not None
-
 
 
 def test_deadletter_task_persists_failed_payload(monkeypatch):
@@ -124,3 +169,138 @@ def test_deadletter_task_persists_failed_payload(monkeypatch):
     assert json.loads(deadletter.payload_snapshot)["resume_text"] == "候选人简历原文"
     assert task.status == "dead"
     assert task.error_code == "E_LLM"
+
+
+def test_dispatch_task_enqueues_extract_stage(monkeypatch):
+    enqueued = []
+    monkeypatch.setattr(
+        analysis,
+        "extract_resume_task",
+        type("FakeTask", (), {"delay": staticmethod(lambda **kwargs: enqueued.append(kwargs))}),
+    )
+
+    payload = analysis.dispatch_batch_task.run(
+        batch_id="batch-1",
+        items=[
+            {
+                "source_type": "employee",
+                "source_id": "E001",
+                "resume_created_time": "2026-03-09T10:00:00",
+                "filekey": "/employee/E001.pdf",
+            }
+        ],
+    )
+
+    assert payload["batch_id"] == "batch-1"
+    assert enqueued == [
+        {
+            "source_type": "employee",
+            "source_id": "E001",
+            "resume_created_time": "2026-03-09T10:00:00",
+            "filekey": "/employee/E001.pdf",
+        }
+    ]
+
+
+def test_extract_task_enqueues_llm_stage(monkeypatch):
+    session = make_session()
+    monkeypatch.setattr(analysis, "SessionLocal", lambda: session)
+    monkeypatch.setattr(analysis, "URLStructuringService", FakeURLStructuringService)
+    captured = []
+    monkeypatch.setattr(
+        analysis,
+        "llm_extract_task",
+        type("FakeTask", (), {"delay": staticmethod(lambda payload: captured.append(payload))}),
+    )
+
+    result = analysis.extract_resume_task.run(
+        source_type="employee",
+        source_id="E001",
+        resume_created_time="2026-03-09T10:00:00",
+    )
+
+    assert result["status"] == "queued_llm"
+    assert captured == [
+        {
+            "source_type": "employee",
+            "source_id": "E001",
+            "resume_created_time": "2026-03-09T10:00:00",
+            "resume_text": "候选人简历原文",
+        }
+    ]
+
+
+def test_llm_task_enqueues_persist_stage(monkeypatch):
+    session = make_session()
+    monkeypatch.setattr(analysis, "SessionLocal", lambda: session)
+    monkeypatch.setattr(analysis, "LLMAnalysisService", FakeLLMAnalysisService)
+    captured = []
+    monkeypatch.setattr(
+        analysis,
+        "persist_result_task",
+        type("FakeTask", (), {"delay": staticmethod(lambda payload: captured.append(payload))}),
+    )
+
+    result = analysis.llm_extract_task.run(
+        {
+            "source_type": "employee",
+            "source_id": "E001",
+            "resume_created_time": "2026-03-09T10:00:00",
+            "resume_text": "候选人简历原文",
+        }
+    )
+
+    assert result["status"] == "queued_persist"
+    assert captured
+    assert captured[0]["source_type"] == "employee"
+    assert captured[0]["source_id"] == "E001"
+    assert captured[0]["structured_resume"]["name"] == "欧桂华"
+
+
+def test_extract_task_deadletters_404_download_errors(monkeypatch):
+    session = make_session()
+    task_id = seed_task_with_filekey(session, source_id="E001", filekey="/employee/E001.pdf")
+
+    monkeypatch.setattr(analysis, "SessionLocal", lambda: session)
+    monkeypatch.setattr(analysis, "URLStructuringService", Download404URLStructuringService)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        analysis.extract_resume_task.run(
+            source_type="employee",
+            source_id="E001",
+            resume_created_time="2026-03-09T10:00:00",
+            filekey="/employee/E001.pdf",
+            enqueue=False,
+        )
+
+    task = session.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).one()
+    deadletter = session.query(ResumeStructDeadletter).one()
+
+    assert task.status == "dead"
+    assert task.error_code == "E_DOWNLOAD"
+    assert deadletter.filekey == "/employee/E001.pdf"
+    assert json.loads(deadletter.payload_snapshot)["filekey"] == "/employee/E001.pdf"
+
+
+def test_extract_task_deadletters_parse_errors(monkeypatch):
+    session = make_session()
+    task_id = seed_task_with_filekey(session, source_id="E002", filekey="/employee/E002.pdf")
+
+    monkeypatch.setattr(analysis, "SessionLocal", lambda: session)
+    monkeypatch.setattr(analysis, "URLStructuringService", ParseFailURLStructuringService)
+
+    with pytest.raises(ValueError, match="Failed to extract readable text"):
+        analysis.extract_resume_task.run(
+            source_type="employee",
+            source_id="E002",
+            resume_created_time="2026-03-09T10:00:00",
+            filekey="/employee/E002.pdf",
+            enqueue=False,
+        )
+
+    task = session.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).one()
+    deadletter = session.query(ResumeStructDeadletter).one()
+
+    assert task.status == "dead"
+    assert task.error_code == "E_PARSE"
+    assert deadletter.filekey == "/employee/E002.pdf"

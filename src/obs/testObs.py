@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="根据 filekey 生成 OBS 临时访问链接")
     parser.add_argument(
         "--filekey",
-        default="/employee/2026-03-06/db1de966-c4fa-4068-bb73-80abc32420ee.pdf",
+        default="/employee/2023-08-09/4ee3d06f-2789-4612-9506-b5591593e260.pdf",
         help="对象 filekey，例如 /employee/2025/01/demo.pdf",
     )
     parser.add_argument("--expire-seconds", type=int, default=settings.obs_url_expire_seconds)

@@ -1,4 +1,4 @@
-"""离线简历批处理治理模型。"""
+﻿"""离线简历批处理治理模型。"""
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
@@ -24,7 +24,6 @@ class ResumeStructBatch(Base):
     finished_at = Column(DateTime(timezone=True), nullable=True, comment="结束时间")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
 
-    # 一个批次聚合多条结构化任务，用于汇总进度和执行结果。
     tasks = relationship(
         "ResumeStructTask",
         back_populates="batch",
@@ -47,6 +46,7 @@ class ResumeStructTask(Base):
     )
     source_type = Column(String(50), nullable=False, index=True, comment="来源类型")
     source_id = Column(String(100), nullable=False, index=True, comment="来源业务ID")
+    filekey = Column(String(512), nullable=True, comment="简历文件filekey")
     resume_created_time = Column(String(50), nullable=False, comment="简历创建时间")
     idempotency_key = Column(String(255), unique=True, nullable=False, index=True, comment="幂等键")
     status = Column(String(20), nullable=False, default="queued", comment="任务状态")
@@ -83,6 +83,7 @@ class ResumeStructDeadletter(Base):
     )
     source_type = Column(String(50), nullable=False, index=True, comment="来源类型")
     source_id = Column(String(100), nullable=False, index=True, comment="来源业务ID")
+    filekey = Column(String(512), nullable=True, comment="简历文件filekey")
     resume_created_time = Column(String(50), nullable=False, comment="简历创建时间")
     last_error = Column(Text, nullable=False, comment="最后一次错误信息")
     payload_snapshot = Column(Text, nullable=True, comment="任务快照")

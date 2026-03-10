@@ -1,4 +1,4 @@
-"""Candidate 相关数据模型。"""
+﻿"""Candidate 相关数据模型。"""
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
@@ -15,7 +15,7 @@ class Candidate(Base):
 
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
     name = Column(String(100), nullable=True, index=True, comment="姓名")
-    email = Column(String(255), nullable=True, index=True, comment="邮箱")
+    email = Column(String(255), nullable=True, comment="邮箱")
     phone = Column(String(50), nullable=True, comment="手机号")
 
     employee_id = Column(String(100), nullable=True, index=True, comment="在职员工工号")

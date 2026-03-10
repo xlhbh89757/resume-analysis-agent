@@ -88,7 +88,13 @@ def batch_analyze_task(self, batch_id: str, candidate_ids: list, job_id: int = N
 
 @celery_app.task(name=PIPELINE_TASK_NAMES["dispatch"], bind=True, max_retries=3)
 def dispatch_batch_task(self, batch_id: str, items: list[dict]):
-    return build_dispatch_payload(batch_id=batch_id, items=items)
+    payload = build_dispatch_payload(batch_id=batch_id, items=items)
+    for item in payload["items"]:
+        if hasattr(extract_resume_task, "delay"):
+            extract_resume_task.delay(**item)
+        else:
+            extract_resume_task.run(**item)
+    return payload
 
 
 def _refresh_resume_url(
@@ -110,6 +116,18 @@ def _refresh_resume_url(
     return refreshed["temp_url"]
 
 
+def _classify_extract_error(exc: Exception) -> str:
+    if isinstance(exc, RuntimeError) and str(exc).startswith("E_DOWNLOAD"):
+        return "E_DOWNLOAD"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return "E_DOWNLOAD"
+    if isinstance(exc, httpx.HTTPError):
+        return "E_DOWNLOAD"
+    if isinstance(exc, ValueError):
+        return "E_PARSE"
+    return "E_EXTRACT"
+
+
 @celery_app.task(name=PIPELINE_TASK_NAMES["extract"], bind=True, max_retries=3)
 def extract_resume_task(
     self,
@@ -118,6 +136,7 @@ def extract_resume_task(
     resume_created_time: str,
     temp_url: str | None = None,
     filekey: str | None = None,
+    enqueue: bool = True,
 ):
     """抽取阶段任务入口。"""
     extract_payload = build_extract_payload(
@@ -135,51 +154,77 @@ def extract_resume_task(
     db = SessionLocal()
     try:
         service = URLStructuringService(db=db)
-        if service_request["mode"] == "url":
-            resume_url = service_request["resume_url"]
-        elif service_request["mode"] == "filekey":
-            resume_url = service.source_client.build_temp_url_from_filekey(
-                service_request["filekey"]
-            )["temp_url"]
-        else:
-            resume_text = asyncio.run(
-                service.extract_resume_text_from_source(
-                    service_request["source_type"],
-                    service_request["source_id"],
-                )
-            )
-            return build_llm_payload(extract_payload=extract_payload, text=resume_text)
-
         try:
-            resume_text = asyncio.run(service.extract_resume_text_from_url(resume_url))
-        except httpx.HTTPStatusError as exc:
-            if exc.response is None or exc.response.status_code != 403:
-                raise
-            refreshed_url = _refresh_resume_url(service, service_request)
-            try:
-                resume_text = asyncio.run(service.extract_resume_text_from_url(refreshed_url))
-            except httpx.HTTPStatusError as retry_exc:
-                if retry_exc.response is not None and retry_exc.response.status_code == 403:
-                    raise RuntimeError("E_DOWNLOAD: temp url expired after refresh") from retry_exc
-                raise
+            if service_request["mode"] == "url":
+                resume_url = service_request["resume_url"]
+            elif service_request["mode"] == "filekey":
+                resume_url = service.source_client.build_temp_url_from_filekey(
+                    service_request["filekey"]
+                )["temp_url"]
+            else:
+                resume_text = asyncio.run(
+                    service.extract_resume_text_from_source(
+                        service_request["source_type"],
+                        service_request["source_id"],
+                        service_request.get("filekey"),
+                    )
+                )
+            if service_request["mode"] in {"url", "filekey"}:
+                try:
+                    resume_text = asyncio.run(service.extract_resume_text_from_url(resume_url))
+                except httpx.HTTPStatusError as exc:
+                    if exc.response is None or exc.response.status_code != 403:
+                        raise
+                    refreshed_url = _refresh_resume_url(service, service_request)
+                    try:
+                        resume_text = asyncio.run(service.extract_resume_text_from_url(refreshed_url))
+                    except httpx.HTTPStatusError as retry_exc:
+                        if retry_exc.response is not None and retry_exc.response.status_code == 403:
+                            raise RuntimeError("E_DOWNLOAD: temp url expired after refresh") from retry_exc
+                        raise
+        except Exception as exc:
+            deadletter_task.run(
+                payload=extract_payload,
+                error_code=_classify_extract_error(exc),
+                error_message=str(exc),
+            )
+            raise
     finally:
         db.close()
 
-    return build_llm_payload(extract_payload=extract_payload, text=resume_text)
+    llm_payload = build_llm_payload(extract_payload=extract_payload, text=resume_text)
+    if enqueue and hasattr(llm_extract_task, "delay"):
+        llm_extract_task.delay(llm_payload)
+        return {
+            "status": "queued_llm",
+            "source_type": source_type,
+            "source_id": source_id,
+            "resume_created_time": resume_created_time,
+        }
+    return llm_payload
 
 
 @celery_app.task(name=PIPELINE_TASK_NAMES["llm"], bind=True, max_retries=3)
-def llm_extract_task(self, llm_payload: dict):
+def llm_extract_task(self, llm_payload: dict, enqueue: bool = True):
     db = SessionLocal()
     try:
         service = LLMAnalysisService()
         structured_resume = asyncio.run(
             service.extract_resume_info(llm_payload.get("resume_text", ""))
         )
-        return build_persist_payload(
+        persist_payload = build_persist_payload(
             llm_payload=llm_payload,
             structured_resume=structured_resume,
         )
+        if enqueue and hasattr(persist_result_task, "delay"):
+            persist_result_task.delay(persist_payload)
+            return {
+                "status": "queued_persist",
+                "source_type": llm_payload["source_type"],
+                "source_id": llm_payload["source_id"],
+                "resume_created_time": llm_payload["resume_created_time"],
+            }
+        return persist_payload
     except Exception as exc:
         deadletter_task.run(
             payload=llm_payload,
