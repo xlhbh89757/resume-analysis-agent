@@ -142,3 +142,15 @@ class ResumeStructureResponse(BaseModel):
     resume_created_time: Optional[str] = None
     resume_url: Optional[str] = None
     structured_resume: dict = Field(default_factory=dict)
+
+
+class PendingResumeItemResponse(BaseModel):
+    source_type: Literal["employee", "submit_candidate", "entrant"]
+    source_id: str
+    resume_created_time: str
+    filekey: Optional[str] = None
+
+
+class PendingResumeListResponse(BaseModel):
+    items: List[PendingResumeItemResponse]
+    next_cursor: Optional[str] = None

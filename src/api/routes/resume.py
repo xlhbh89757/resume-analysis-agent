@@ -16,6 +16,7 @@ from src.services.document_parser import DocumentParser
 from src.services.llm_service import LLMAnalysisService
 from src.services.vector_service import VectorService
 from src.services.persist_service import PersistService
+from src.services.pending_resume_service import PendingResumeService
 from src.services.url_structuring_service import URLStructuringService
 from src.utils.project_experience_normalizer import to_text_list
 from src.utils.work_experience_normalizer import normalize_work_experience
@@ -30,6 +31,7 @@ from src.api.schemas.resume import (
     EmployeeResumeStructureRequest,
     SourceResumeStructureRequest,
     ResumeStructureResponse,
+    PendingResumeListResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -299,6 +301,22 @@ async def structure_resume_from_source(
     elif request.source_type == "submit_candidate":
         response["submit_candidate_id"] = request.source_id
     return response
+
+
+@router.get("/pending", response_model=PendingResumeListResponse)
+async def list_pending_resumes(
+    source_type: str,
+    cursor: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    """返回待结构化简历清单，供批处理入口直接调用。"""
+    service = PendingResumeService(db)
+    return service.list_pending_resumes(
+        source_type=source_type,
+        cursor=cursor,
+        limit=limit,
+    )
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
