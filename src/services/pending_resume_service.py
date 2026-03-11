@@ -106,7 +106,7 @@ FROM (
          WHERE sc.is_deleted = 0
            AND sc.attachments != ''
            AND sc.attachments IS NOT NULL
-           AND DATE_FORMAT(sc.gmt_create, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
+           AND DATE_FORMAT(sc.gmt_create, '%Y-%m') >= '2026-02'
            AND sc.status = 10
      ) pending_resumes
 WHERE source_type = :source_type
