@@ -154,6 +154,11 @@ def extract_resume_task(
     db = SessionLocal()
     try:
         service = URLStructuringService(db=db)
+        PersistService(db).mark_task_started_by_identity(
+            source_type=source_type,
+            source_id=source_id,
+            resume_created_time=resume_created_time,
+        )
         try:
             if service_request["mode"] == "url":
                 resume_url = service_request["resume_url"]

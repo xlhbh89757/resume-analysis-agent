@@ -7,8 +7,9 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from src.models.candidate import Candidate, ProjectExperience, Skill, WorkExperience
-from src.models.resume_batch import ResumeStructDeadletter, ResumeStructTask
+from src.models.resume_batch import ResumeStructBatch, ResumeStructDeadletter, ResumeStructTask
 from src.utils.project_experience_normalizer import to_text_list
+from src.utils.time_utils import local_now
 from src.utils.work_experience_normalizer import normalize_work_experience
 
 SOURCE_FIELD_MAPPING = {
@@ -107,10 +108,11 @@ class PersistService:
                 "force_reparse": False,
             }
 
-        now = datetime.utcnow()
+        now = local_now()
+        batch_id = task.batch_id if task else None
         if task:
             task.status = "running"
-            task.started_at = now
+            task.started_at = task.started_at or now
             task.error_code = None
             task.error_message = None
             task.attempt_count = (task.attempt_count or 0) + 1
@@ -137,10 +139,8 @@ class PersistService:
                 task.llm_tokens_out = payload.get("llm_tokens_out")
                 llm_cost = payload.get("llm_cost")
                 task.llm_cost = str(llm_cost) if llm_cost is not None else None
-                if task.batch and not was_success:
-                    task.batch.success_count += 1
-
             self.db.commit()
+            self._refresh_batch(batch_id, now)
             self.db.refresh(candidate)
             return {
                 "status": "success",
@@ -171,10 +171,13 @@ class PersistService:
         if task is None:
             raise ValueError("ResumeStructTask not found for deadletter payload")
 
+        now = local_now()
+        batch_id = task.batch_id
         task.status = "dead"
         task.error_code = error_code
         task.error_message = error_message
-        task.finished_at = datetime.utcnow()
+        task.started_at = task.started_at or now
+        task.finished_at = now
 
         deadletter = ResumeStructDeadletter(
             task_id=task.id,
@@ -187,6 +190,7 @@ class PersistService:
         )
         self.db.add(deadletter)
         self.db.commit()
+        self._refresh_batch(batch_id, now)
         self.db.refresh(deadletter)
 
         return {
@@ -194,6 +198,53 @@ class PersistService:
             "deadletter_id": deadletter.id,
             "error_code": error_code,
         }
+
+    def mark_task_started(self, task_id: int | None) -> None:
+        if task_id is None:
+            return
+
+        task = self.db.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).first()
+        if task is None:
+            return
+
+        now = local_now()
+        if task.status == "queued":
+            task.status = "running"
+        task.started_at = task.started_at or now
+        self.db.commit()
+
+    def mark_task_started_by_identity(
+        self,
+        source_type: str,
+        source_id: str,
+        resume_created_time: str,
+    ) -> None:
+        if not hasattr(self.db, "query"):
+            return
+        task = self._get_task(
+            None,
+            self._build_idempotency_key(source_type, source_id, resume_created_time),
+        )
+        if task is None:
+            return
+        self.mark_task_started(task.id)
+
+    def mark_task_skipped(self, task_id: int | None, reason: str | None = None) -> None:
+        if task_id is None:
+            return
+
+        task = self.db.query(ResumeStructTask).filter(ResumeStructTask.id == task_id).first()
+        if task is None:
+            return
+
+        now = local_now()
+        task.status = "skipped"
+        task.started_at = task.started_at or now
+        task.finished_at = now
+        task.error_message = reason
+        batch_id = task.batch_id
+        self.db.commit()
+        self._refresh_batch(batch_id, now)
 
     def _build_idempotency_key(self, source_type: str, source_id: str, resume_created_time: str) -> str:
         return f"{source_type}:{source_id}:{resume_created_time}"
@@ -271,10 +322,48 @@ class PersistService:
         if not failed_task:
             return
 
+        now = local_now()
         failed_task.status = "failed"
         failed_task.error_code = "E_PERSIST"
         failed_task.error_message = error_message
-        failed_task.finished_at = datetime.utcnow()
-        if failed_task.batch:
-            failed_task.batch.failed_count += 1
+        failed_task.started_at = failed_task.started_at or now
+        failed_task.finished_at = now
+        batch_id = failed_task.batch_id
         self.db.commit()
+        self._refresh_batch(batch_id, now)
+
+    def _refresh_batch(self, batch_id: int | None, now: datetime | None = None) -> None:
+        if batch_id is None:
+            return
+
+        now = now or local_now()
+        bind = self.db.get_bind()
+        with Session(bind=bind) as refresh_session:
+            batch = (
+                refresh_session.query(ResumeStructBatch)
+                .filter(ResumeStructBatch.id == batch_id)
+                .first()
+            )
+            if batch is None:
+                return
+
+            statuses = [
+                status
+                for (status,) in refresh_session.query(ResumeStructTask.status)
+                .filter(ResumeStructTask.batch_id == batch.id)
+                .all()
+            ]
+
+            batch.success_count = sum(1 for status in statuses if status == "success")
+            batch.failed_count = sum(1 for status in statuses if status in {"failed", "dead"})
+            batch.skipped_count = sum(1 for status in statuses if status == "skipped")
+
+            terminal_count = batch.success_count + batch.failed_count + batch.skipped_count
+            if batch.total_count and terminal_count >= batch.total_count:
+                batch.status = "completed"
+                batch.finished_at = now
+            else:
+                batch.status = "running"
+                batch.finished_at = None
+
+            refresh_session.commit()
