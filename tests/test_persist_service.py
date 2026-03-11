@@ -201,3 +201,45 @@ def test_create_deadletter_persists_filekey():
 
     assert result["status"] == "dead"
     assert deadletter.filekey == "/employee/2026/03/E001.pdf"
+
+
+def test_force_reparse_overwrites_existing_success_result():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    original_payload = make_payload(task.id)
+
+    first = service.persist_structured_resume(original_payload)
+    assert first["status"] == "success"
+
+    updated_payload = make_payload(task.id)
+    updated_payload["structured_resume"]["name"] = "重新解析后的姓名"
+    updated_payload["structured_resume"]["summary"] = "重新解析后的摘要"
+    updated_payload["structured_resume"]["work_experiences"][0]["achievements"] = ["新的项目成果"]
+    updated_payload["force_reparse"] = True
+
+    second = service.persist_structured_resume(updated_payload)
+
+    candidate = session.query(Candidate).one()
+    session.refresh(task)
+
+    assert second["status"] == "success"
+    assert candidate.name == "重新解析后的姓名"
+    assert candidate.summary == "重新解析后的摘要"
+    assert candidate.work_experiences[0].achievements == '["新的项目成果"]'
+    assert task.attempt_count == 2
+
+
+def test_force_reparse_does_not_skip_existing_success_task():
+    session = make_session()
+    task = create_task(session)
+    service = PersistService(session)
+    payload = make_payload(task.id)
+
+    first = service.persist_structured_resume(payload)
+    assert first["status"] == "success"
+
+    payload["force_reparse"] = True
+    second = service.persist_structured_resume(payload)
+
+    assert second["status"] == "success"

@@ -1,6 +1,4 @@
-"""结构化简历落库服务。"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime
@@ -43,7 +41,7 @@ class PersistService:
         candidate.summary = structured_resume.get("summary")
         candidate.status = "completed"
 
-        # 重跑同一候选人时先清空旧明细，避免工作经历、项目经历和技能重复叠加。
+        # 同一候选人重跑时先清空旧明细，避免重复叠加。
         candidate.work_experiences.clear()
         candidate.project_experiences.clear()
         candidate.skills.clear()
@@ -96,22 +94,26 @@ class PersistService:
         source_type = payload["source_type"]
         source_id = payload["source_id"]
         resume_created_time = payload["resume_created_time"]
+        force_reparse = bool(payload.get("force_reparse"))
         idempotency_key = self._build_idempotency_key(source_type, source_id, resume_created_time)
         task = self._get_task(payload.get("task_id"), idempotency_key)
+        was_success = bool(task and task.status == "success")
 
-        if task and task.status == "success":
+        if was_success and not force_reparse:
             return {
                 "status": "skipped",
                 "candidate_id": None,
                 "idempotency_key": idempotency_key,
+                "force_reparse": False,
             }
 
         now = datetime.utcnow()
         if task:
             task.status = "running"
-            task.started_at = task.started_at or now
+            task.started_at = now
             task.error_code = None
             task.error_message = None
+            task.attempt_count = (task.attempt_count or 0) + 1
 
         structured_resume = payload.get("structured_resume") or {}
         candidate = self._find_or_create_candidate(
@@ -135,7 +137,7 @@ class PersistService:
                 task.llm_tokens_out = payload.get("llm_tokens_out")
                 llm_cost = payload.get("llm_cost")
                 task.llm_cost = str(llm_cost) if llm_cost is not None else None
-                if task.batch:
+                if task.batch and not was_success:
                     task.batch.success_count += 1
 
             self.db.commit()
@@ -144,6 +146,7 @@ class PersistService:
                 "status": "success",
                 "candidate_id": candidate.id,
                 "idempotency_key": idempotency_key,
+                "force_reparse": force_reparse,
             }
         except Exception as exc:
             self.db.rollback()

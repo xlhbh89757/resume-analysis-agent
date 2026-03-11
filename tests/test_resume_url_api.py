@@ -36,6 +36,24 @@ class FakeUrlStructuringService:
             "structured_resume": {"name": "欧桂华"},
         }
 
+    async def force_reparse(
+        self,
+        source_type: str,
+        source_id: str,
+        resume_created_time: str,
+        filekey: str | None = None,
+        reason: str | None = None,
+    ):
+        return {
+            "status": "success",
+            "candidate_id": 404,
+            "force_reparse": True,
+            "source_type": source_type,
+            "source_id": source_id,
+            "resume_created_time": resume_created_time,
+            "structured_resume": {"name": "欧桂华"},
+        }
+
 
 def build_client(monkeypatch):
     app = FastAPI()
@@ -92,3 +110,24 @@ def test_structure_resume_from_source_endpoint_returns_candidate_id(monkeypatch)
     assert response.json()["candidate_id"] == 303
     assert response.json()["source_type"] == "submit_candidate"
     assert response.json()["source_id"] == "S001"
+
+
+def test_force_reparse_endpoint_returns_candidate_id(monkeypatch):
+    client = build_client(monkeypatch)
+
+    response = client.post(
+        "/api/v1/resumes/force-reparse",
+        json={
+            "source_type": "employee",
+            "source_id": "E001",
+            "resume_created_time": "2026-03-09T10:00:00",
+            "filekey": "/employee/2026/03/E001.pdf",
+            "reason": "low_quality_resume_text",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["candidate_id"] == 404
+    assert body["force_reparse"] is True
+    assert body["source_type"] == "employee"

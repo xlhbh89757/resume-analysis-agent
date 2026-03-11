@@ -1,6 +1,4 @@
-"""简历相关 API Schema。"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime
@@ -130,10 +128,19 @@ class SourceResumeStructureRequest(BaseModel):
     filekey: Optional[str] = None
 
 
+class ForceReparseRequest(BaseModel):
+    source_type: Literal["employee", "submit_candidate", "entrant"]
+    source_id: str
+    resume_created_time: str
+    filekey: Optional[str] = None
+    reason: Optional[str] = None
+
+
 class ResumeStructureResponse(BaseModel):
     status: str
     candidate_id: Optional[int] = None
     idempotency_key: Optional[str] = None
+    force_reparse: Optional[bool] = None
     employee_id: Optional[str] = None
     entrant_id: Optional[str] = None
     submit_candidate_id: Optional[str] = None

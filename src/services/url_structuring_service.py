@@ -1,6 +1,4 @@
-"""基于 URL 的简历结构化服务。"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import mimetypes
 import tempfile
@@ -46,6 +44,7 @@ class URLStructuringService:
         source_id: str,
         resume_created_time: str,
         filekey: str | None = None,
+        force_reparse: bool = False,
     ) -> dict[str, Any]:
         """按来源标识执行完整结构化流程。"""
         resume_url = await self.resolve_resume_url(
@@ -58,6 +57,8 @@ class URLStructuringService:
             source_type=source_type,
             source_id=source_id,
             resume_created_time=resume_created_time,
+            filekey=filekey,
+            force_reparse=force_reparse,
         )
 
     async def structure_from_employee(
@@ -65,6 +66,7 @@ class URLStructuringService:
         employee_id: str,
         resume_created_time: str,
         filekey: str | None = None,
+        force_reparse: bool = False,
     ) -> dict[str, Any]:
         """兼容旧接口，内部转换为 employee 来源。"""
         return await self.structure_from_source(
@@ -72,6 +74,7 @@ class URLStructuringService:
             source_id=employee_id,
             resume_created_time=resume_created_time,
             filekey=filekey,
+            force_reparse=force_reparse,
         )
 
     async def structure_from_url(
@@ -81,6 +84,7 @@ class URLStructuringService:
         source_id: str | None = None,
         resume_created_time: str | None = None,
         filekey: str | None = None,
+        force_reparse: bool = False,
     ) -> dict[str, Any]:
         """按 URL 下载简历、提取文本并同步落库。"""
         file_path = await self.downloader(resume_url)
@@ -89,7 +93,12 @@ class URLStructuringService:
             structured_resume = await self.llm_service.extract_resume_info(resume_text)
 
             if source_type and source_id and resume_created_time:
-                task = self._ensure_manual_task(source_type, source_id, resume_created_time, filekey=filekey)
+                task = self._ensure_manual_task(
+                    source_type,
+                    source_id,
+                    resume_created_time,
+                    filekey=filekey,
+                )
                 persist_result = self.persist_service.persist_structured_resume(
                     {
                         "task_id": task.id,
@@ -99,6 +108,7 @@ class URLStructuringService:
                         "resume_created_time": resume_created_time,
                         "resume_text": resume_text,
                         "structured_resume": structured_resume,
+                        "force_reparse": force_reparse,
                     }
                 )
             else:
@@ -109,6 +119,7 @@ class URLStructuringService:
 
             return {
                 **persist_result,
+                "force_reparse": force_reparse,
                 "resume_url": resume_url,
                 "resume_text": resume_text,
                 "structured_resume": structured_resume,
@@ -156,6 +167,24 @@ class URLStructuringService:
     async def extract_resume_text_from_employee(self, employee_id: str, filekey: str | None = None) -> str:
         """兼容旧调用，默认使用 employee 来源。"""
         return await self.extract_resume_text_from_source("employee", employee_id, filekey=filekey)
+
+    async def force_reparse(
+        self,
+        source_type: str,
+        source_id: str,
+        resume_created_time: str,
+        filekey: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """强制重新解析指定来源键对应的简历。"""
+        _ = reason
+        return await self.structure_from_source(
+            source_type=source_type,
+            source_id=source_id,
+            resume_created_time=resume_created_time,
+            filekey=filekey,
+            force_reparse=True,
+        )
 
     async def _download_to_temp_file(self, resume_url: str) -> Path:
         """下载 URL 文件到临时目录，供解析器读取。"""

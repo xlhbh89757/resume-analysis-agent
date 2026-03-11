@@ -30,6 +30,7 @@ from src.api.schemas.resume import (
     ResumeUrlStructureRequest,
     EmployeeResumeStructureRequest,
     SourceResumeStructureRequest,
+    ForceReparseRequest,
     ResumeStructureResponse,
     PendingResumeListResponse,
 )
@@ -303,6 +304,42 @@ async def structure_resume_from_source(
     return response
 
 
+
+
+@router.post("/force-reparse", response_model=ResumeStructureResponse)
+async def force_reparse_resume(
+    request: ForceReparseRequest,
+    db: Session = Depends(get_db),
+):
+    """强制重新下载并覆盖同一来源键的结构化结果。"""
+    service = URLStructuringService(db=db)
+    result = await service.force_reparse(
+        source_type=request.source_type,
+        source_id=request.source_id,
+        resume_created_time=request.resume_created_time,
+        filekey=request.filekey,
+        reason=request.reason,
+    )
+
+    response = {
+        "status": result.get("status"),
+        "candidate_id": result.get("candidate_id"),
+        "idempotency_key": result.get("idempotency_key"),
+        "force_reparse": True,
+        "source_type": request.source_type,
+        "source_id": request.source_id,
+        "resume_created_time": request.resume_created_time,
+        "resume_url": result.get("resume_url"),
+        "structured_resume": result.get("structured_resume") or {},
+    }
+    if request.source_type == "employee":
+        response["employee_id"] = request.source_id
+    elif request.source_type == "entrant":
+        response["entrant_id"] = request.source_id
+    elif request.source_type == "submit_candidate":
+        response["submit_candidate_id"] = request.source_id
+    return response
+
 @router.get("/pending", response_model=PendingResumeListResponse)
 async def list_pending_resumes(
     source_type: str,
@@ -414,3 +451,6 @@ async def delete_candidate(
     db.commit()
     
     return {"message": "删除成功"}
+
+
+
