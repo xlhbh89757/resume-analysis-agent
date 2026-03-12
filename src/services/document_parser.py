@@ -1,9 +1,16 @@
-﻿"""Document parsing service supporting PDF and DOCX."""
+﻿"""Document parsing service supporting PDF, DOCX, OCR, and legacy DOC fallbacks."""
 
 import logging
+import os
 import re
+import subprocess
+import tempfile
+from io import BytesIO
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable, List, Literal, Tuple
+
+from PIL import Image
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,22 +19,22 @@ NORMAL_CHINESE_PUNCT_PATTERN = re.compile(
     r"[\uFF0C\u3002\uFF1B\uFF1A\u3001\uFF08\uFF09\u300A\u300B\u3010\u3011]"
 )
 RESUME_KEYWORDS = [
-    "\u59d3\u540d",  # 姓名
-    "\u7535\u8bdd",  # 电话
-    "\u90ae\u7bb1",  # 邮箱
-    "\u5de5\u4f5c",  # 工作
-    "\u7ecf\u5386",  # 经历
-    "\u9879\u76ee",  # 项目
-    "\u6559\u80b2",  # 教育
-    "\u6280\u80fd",  # 技能
-    "\u8d1f\u8d23",  # 负责
-    "\u6570\u636e",  # 数据
-    "\u5f00\u53d1",  # 开发
-    "\u5de5\u7a0b\u5e08",  # 工程师
-    "\u516c\u53f8",  # 公司
-    "\u5c97\u4f4d",  # 岗位
-    "\u804c\u8d23",  # 职责
-    "\u6210\u679c",  # 成果
+    "\u59d3\u540d",
+    "\u7535\u8bdd",
+    "\u90ae\u7bb1",
+    "\u5de5\u4f5c",
+    "\u7ecf\u5386",
+    "\u9879\u76ee",
+    "\u6559\u80b2",
+    "\u6280\u80fd",
+    "\u8d1f\u8d23",
+    "\u6570\u636e",
+    "\u5f00\u53d1",
+    "\u5de5\u7a0b\u5e08",
+    "\u516c\u53f8",
+    "\u5c97\u4f4d",
+    "\u804c\u8d23",
+    "\u6210\u679c",
 ]
 
 
@@ -35,14 +42,48 @@ class DocumentParser:
     """Parse resume files and return plain text."""
 
     def parse(self, file_path: str) -> str:
+        file_kind = self._detect_file_kind(file_path)
+
+        if file_kind == "pdf":
+            return self._parse_pdf(file_path)
+        if file_kind == "docx":
+            return self._parse_docx(file_path)
+        if file_kind == "doc":
+            converted_path = self._convert_doc_to_pdf(file_path)
+            try:
+                return self._parse_pdf(converted_path)
+            finally:
+                converted = Path(converted_path)
+                converted.unlink(missing_ok=True)
+                if converted.parent.name.startswith("resume-doc-convert-"):
+                    converted.parent.rmdir()
+        if file_kind == "image":
+            return self._extract_image_with_ocr(file_path)
+        raise ValueError(f"Unsupported file type: {Path(file_path).suffix.lower()}")
+
+    def _detect_file_kind(self, file_path: str) -> Literal["pdf", "docx", "doc", "image", "unknown"]:
         path = Path(file_path)
         suffix = path.suffix.lower()
+        header = path.read_bytes()[:16]
+
+        if header.startswith(b"%PDF"):
+            return "pdf"
+        if header.startswith(b"PK"):
+            return "docx"
+        if header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+            return "doc"
+        if header.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
+            return "image"
 
         if suffix == ".pdf":
-            return self._parse_pdf(file_path)
-        if suffix in [".docx", ".doc"]:
-            return self._parse_docx(file_path)
-        raise ValueError(f"Unsupported file type: {suffix}")
+            return "pdf"
+        if suffix == ".doc":
+            return "doc"
+        if suffix == ".docx":
+            return "docx"
+        if suffix in {".png", ".jpg", ".jpeg"}:
+            return "image"
+        return "unknown"
 
     def _parse_pdf(self, file_path: str) -> str:
         try:
@@ -96,7 +137,19 @@ class DocumentParser:
                     file_path,
                     len(best_text),
                 )
+                ocr_text = self._extract_pdf_with_ocr(file_path)
+                if ocr_text and len(ocr_text) > len(best_text):
+                    return ocr_text
                 return best_text
+
+            ocr_text = self._extract_pdf_with_ocr(file_path)
+            if ocr_text:
+                logger.info(
+                    "Parsed PDF via OCR fallback: %s, length: %s chars",
+                    file_path,
+                    len(ocr_text),
+                )
+                return ocr_text
 
             raise ValueError("Failed to extract readable text from PDF")
         except Exception as e:
@@ -163,13 +216,83 @@ class DocumentParser:
             logger.error("Failed to parse DOCX: %s, error: %s", file_path, e)
             raise
 
+    def _extract_pdf_with_ocr(self, file_path: str) -> str:
+        if not self._has_module("rapidocr_onnxruntime"):
+            raise RuntimeError("RapidOCR is not installed")
+
+        import fitz
+
+        text_parts = []
+        doc = fitz.open(file_path)
+        try:
+            for page in doc:
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                image = Image.open(BytesIO(pix.tobytes("png")))
+                try:
+                    page_text = self._run_ocr(image)
+                finally:
+                    image.close()
+                if page_text:
+                    text_parts.append(page_text)
+        finally:
+            doc.close()
+
+        return self._clean_text("\n".join(text_parts))
+
+    def _extract_image_with_ocr(self, file_path: str) -> str:
+        if not self._has_module("rapidocr_onnxruntime"):
+            raise RuntimeError("RapidOCR is not installed")
+
+        image = Image.open(file_path)
+        try:
+            return self._clean_text(self._run_ocr(image))
+        finally:
+            image.close()
+
+    def _run_ocr(self, image: Image.Image) -> str:
+        from rapidocr_onnxruntime import RapidOCR
+
+        engine = RapidOCR()
+        result, _ = engine(image)
+        if not result:
+            return ""
+        return "\n".join(item[1] for item in result if len(item) >= 2 and item[1])
+
+    def _convert_doc_to_pdf(self, file_path: str) -> str:
+        soffice_path = settings.libreoffice_path or os.getenv(
+            "LIBREOFFICE_PATH",
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+        )
+        output_dir = Path(tempfile.mkdtemp(prefix="resume-doc-convert-"))
+        command = [
+            soffice_path,
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            file_path,
+        ]
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError("LibreOffice is not installed") from exc
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"LibreOffice doc conversion failed: {exc.stderr or exc.stdout}"
+            ) from exc
+
+        converted_path = output_dir / f"{Path(file_path).stem}.pdf"
+        if not converted_path.exists():
+            raise RuntimeError("LibreOffice doc conversion did not produce a PDF")
+        return str(converted_path)
+
     def _clean_text(self, text: str) -> str:
         if not text:
             return ""
 
         text = self._repair_text_encoding(text)
 
-        # Remove watermark-like noise tokens (for example: 5e207...HR-...~~)
         text = WATERMARK_TOKEN_PATTERN.sub("", text)
 
         text = re.sub(r"\n{3,}", "\n\n", text)
@@ -201,14 +324,9 @@ class DocumentParser:
         if not has_chinese:
             return line.strip()
 
-        # Remove isolated single-letter fragments around Chinese text.
         line = re.sub(r"\s+[A-Za-z](?=\s|$)", "", line)
         line = re.sub(r"\s+[A-Za-z](?=[\u4e00-\u9fff])", " ", line)
-
-        # Remove leading page-number-like fragments such as "4 2 profile-summary".
         line = re.sub(r"^\d+\s+\d+\s+(?=[\u4e00-\u9fff])", "", line)
-
-        # Remove trailing split-number fragments such as "male 6 6".
         line = re.sub(r"\s+\d\s+\d$", "", line)
 
         return line.strip()
@@ -227,11 +345,9 @@ class DocumentParser:
         if not has_chinese:
             compact = re.sub(r"[^A-Za-z0-9]", "", line)
 
-            # Drop short fragment lines like "R-", "H", "0t".
             if len(compact) <= 2:
                 return True
 
-            # Drop long mixed random strings commonly produced by PDF watermarks.
             if (
                 "@" not in line
                 and re.fullmatch(r"[A-Za-z0-9~_-]{20,}", line)

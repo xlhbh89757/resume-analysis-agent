@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     obs_host: Optional[str] = None
     obs_url_expire_seconds: int = 900
 
+    # Local Office Conversion
+    libreoffice_path: Optional[str] = None
+
     @field_validator("debug", mode="before")
     @classmethod
     def normalize_debug(cls, value: object) -> object:
