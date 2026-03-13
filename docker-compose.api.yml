@@ -18,7 +18,7 @@ services:
     depends_on:
       - resume-api
     ports:
-      - "80:80"
+      - "8089:80"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped

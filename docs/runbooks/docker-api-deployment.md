@@ -86,7 +86,7 @@ docker compose --env-file deploy/docker/.env.api -f docker-compose.api.yml logs 
 1. Open Swagger:
 
 ```text
-http://<server-ip>/docs
+http://<server-ip>:8089/docs
 ```
 
 2. Verify single-resume APIs:
