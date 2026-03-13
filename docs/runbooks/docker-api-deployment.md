@@ -52,6 +52,19 @@ OBS_URL_EXPIRE_SECONDS=3600
 
 ```
 
+Use placeholders only in `deploy/docker/.env.api.example`.
+Store real environment values only in the untracked file:
+
+```text
+deploy/docker/.env.api
+```
+
+Notes:
+
+1. If you only call single-resume APIs with `filekey`, `RESUME_SOURCE_API_BASE_URL` can stay empty.
+2. If Qdrant is not used in this deployment, `QDRANT_URL` may point to a placeholder value and be filled later.
+3. `LIBREOFFICE_PATH` is injected by `docker-compose.api.yml` and does not need to be added to `.env.api`.
+
 If batch/Celery is still needed later, also keep:
 
 ```env
